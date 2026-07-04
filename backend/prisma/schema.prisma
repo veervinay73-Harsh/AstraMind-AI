@@ -1,0 +1,167 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider   = "prisma-client-js"
+  output     = "../src/generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Hospital {
+  id           String                  @id @default(uuid())
+  name         String
+  address      String?
+  phone        String?
+  timezone     String                  @default("UTC")
+  twilioConfig Json?                   // Twilio phone credentials & webhooks config
+  aiConfig     Json?                   // Custom System Prompt, Voice IDs
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  
+  doctors      Doctor[]
+  patients     Patient[]
+  staff        Staff[]
+  appointments Appointment[]
+  callLogs     CallLog[]
+  kbArticles   KnowledgeBaseArticle[]
+}
+
+model Doctor {
+  id             String        @id @default(uuid())
+  name           String
+  specialization String
+  email          String?
+  phone          String?
+  hospitalId     String
+  hospital       Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  
+  appointments   Appointment[]
+
+  @@index([hospitalId]) // Optimizes doctor queries per tenant
+}
+
+model Patient {
+  id         String        @id @default(uuid())
+  name       String
+  phone      String        // Caller phone number
+  email      String?
+  dob        DateTime?     // For identity validation
+  hospitalId String
+  hospital   Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  appointments Appointment[]
+  callLogs     CallLog[]
+
+  @@index([phone]) // Optimizes caller identification by phone
+  @@unique([hospitalId, phone]) // Ensures unique phone numbers per tenant and optimizes tenant-wide patient lists
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  RESCHEDULED
+  CANCELLED
+}
+
+model Appointment {
+  id         String            @id @default(uuid())
+  patientId  String
+  patient    Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId   String
+  doctor     Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dateTime   DateTime
+  duration   Int               @default(30) // Minutes
+  status     AppointmentStatus @default(PENDING)
+  notes      String?
+  hospitalId String
+  hospital   Hospital          @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  callLogId  String?           @unique
+  callLog    CallLog?          @relation(fields: [callLogId], references: [id], onDelete: SetNull)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([hospitalId]) // Optimizes calendar fetches per tenant
+  @@index([patientId])  // Optimizes patient schedule history joins
+  @@index([doctorId])   // Optimizes doctor schedule joins
+}
+
+model CallLog {
+  id                String         @id @default(uuid())
+  twilioCallSid     String         @unique
+  patientId         String?
+  patient           Patient?       @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  callDuration      Int?           // Seconds
+  callStatus        String         // ringing, in-progress, completed, failed
+  summary           String?
+  actionTaken       String?        // e.g. "APPOINTMENT_BOOKED"
+  handedOverToHuman Boolean        @default(false)
+  hospitalId        String
+  hospital          Hospital       @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  messages          CallMessage[]
+  appointment       Appointment?
+
+  @@index([hospitalId]) // Optimizes dashboard calls list per tenant
+  @@index([patientId])  // Optimizes call history per patient
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model CallMessage {
+  id        String      @id @default(uuid())
+  callLogId String
+  callLog   CallLog     @relation(fields: [callLogId], references: [id], onDelete: Cascade)
+  role      MessageRole
+  content   String
+  timestamp DateTime    @default(now())
+
+  @@index([callLogId]) // Optimizes loading transcript chronologically for a specific call
+}
+
+model KnowledgeBaseArticle {
+  id         String   @id @default(uuid())
+  category   String   // Parking, Insurance, Billing, etc.
+  question   String
+  answer     String
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([hospitalId]) // Optimizes RAG queries per tenant
+}
+
+enum StaffRole {
+  ADMIN
+  STAFF
+}
+
+model Staff {
+  id           String    @id @default(uuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         StaffRole @default(STAFF)
+  hospitalId   String
+  hospital     Hospital  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([hospitalId]) // Optimizes tenant staff loading
+}
