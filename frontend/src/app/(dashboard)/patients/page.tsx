@@ -394,7 +394,7 @@ function PatientDrawer({
       setIsLoading(true);
       setError(null);
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+        const baseUrl = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : "http://localhost:5000/api");
         const res = await fetch(`${baseUrl}/patients/${patient.id}`);
         if (!res.ok) throw new Error("Failed to load patient profile.");
         const data: PatientProfile = await res.json();
@@ -602,7 +602,7 @@ export default function PatientsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+      const baseUrl = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : "http://localhost:5000/api");
       const params = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),

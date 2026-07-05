@@ -71,7 +71,7 @@ export default function AppointmentsPage() {
 
   const fetchDoctors = async () => {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+      const baseUrl = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : "http://localhost:5000/api");
       const res = await fetch(`${baseUrl}/doctors?limit=100`);
       if (res.ok) {
         const raw = await res.json();
@@ -88,7 +88,7 @@ export default function AppointmentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+      const baseUrl = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : "http://localhost:5000/api");
       
       const queryParams = new URLSearchParams({
         hospitalId: "default", // will be auto-resolved by backend fallback

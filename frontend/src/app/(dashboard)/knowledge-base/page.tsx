@@ -48,7 +48,7 @@ type DrawerMode = "view" | "edit" | "create";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : "http://localhost:5000/api");
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString([], {
