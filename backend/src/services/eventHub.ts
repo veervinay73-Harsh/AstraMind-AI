@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { Logger } from '../utils/logger';
 
 // Set of active dashboard client connections
 export const dashboardClients = new Set<WebSocket>();
@@ -13,7 +14,7 @@ export const broadcastToDashboard = (event: any): void => {
       try {
         client.send(payload);
       } catch (err) {
-        console.error('Failed to send message to dashboard client', err);
+        Logger.error('Failed to send message to dashboard client', err, 'EVENT_HUB');
       }
     }
   }

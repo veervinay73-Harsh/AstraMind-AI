@@ -1,20 +1,8 @@
-import { Groq } from 'groq-sdk';
+
 import { BookingState } from './stateManager';
 import { OrchestratorResult } from './orchestrator';
 import { Logger } from '../utils/logger';
-
-let groqInstance: Groq | null = null;
-
-const getGroqClient = (): Groq => {
-  if (!groqInstance) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      throw new Error('GROQ_API_KEY is not defined in environment variables.');
-    }
-    groqInstance = new Groq({ apiKey });
-  }
-  return groqInstance;
-};
+import { getGroqClient } from '../config/groq';
 
 export const generateVoiceResponse = async (
   userUtterance: string,

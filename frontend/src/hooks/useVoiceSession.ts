@@ -25,7 +25,6 @@ export interface TranscriptEntry {
 
 const getWsBase = (): string => {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-  // "http://localhost:5000/api" → "ws://localhost:5000"
   return apiBase.replace(/^https?/, 'ws').replace(/\/api$/, '');
 };
 
@@ -57,10 +56,29 @@ export function useVoiceSession() {
     }
   }, []);
 
+  const safeReturnToListening = useCallback(() => {
+    console.log('[useVoiceSession] Synchronizing state to transition to LISTENING...');
+    isSpeakingRef.current = false;
+    setMicrophoneMute(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      console.log('[useVoiceSession] MediaRecorder is actively recording.');
+    } else {
+      console.warn('[useVoiceSession] MediaRecorder is NOT actively recording!');
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      console.log('[useVoiceSession] Backend WebSocket is OPEN.');
+    } else {
+      console.warn('[useVoiceSession] Backend WebSocket is NOT OPEN!');
+    }
+    setStatus('listening');
+    console.log('[useVoiceSession] Returned to LISTENING.');
+  }, [setMicrophoneMute]);
+
   // ── Cleanup helper ───────────────────────────────────────────────────────────
 
   const cleanup = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
+      console.log('[useVoiceSession] MediaRecorder stopped.');
       mediaRecorderRef.current.stop();
     }
     mediaRecorderRef.current = null;
@@ -85,6 +103,7 @@ export function useVoiceSession() {
 
     expectingAudioRef.current = false;
     disconnectOnEndRef.current = false;
+    isSpeakingRef.current = false;
   }, []);
 
   // ── Stop session ─────────────────────────────────────────────────────────────
@@ -122,18 +141,15 @@ export function useVoiceSession() {
       src.buffer = decoded;
       src.connect(gainRef.current!);
       src.start();
-      console.log('[useVoiceSession] Audio playback started.');
+      console.log('[useVoiceSession] AI speaking started.');
 
       src.onended = () => {
-        console.log('[useVoiceSession] Audio playback finished.');
+        console.log('[useVoiceSession] AI speaking finished.');
         if (disconnectOnEndRef.current) {
           console.log('[useVoiceSession] Closing voice session after greeting/goodbye.');
           stopSession();
         } else {
-          console.log('[useVoiceSession] Unmuting microphone.');
-          isSpeakingRef.current = false;
-          setMicrophoneMute(false);
-          setStatus('listening');
+          safeReturnToListening();
         }
       };
     } catch (err) {
@@ -141,14 +157,10 @@ export function useVoiceSession() {
       if (disconnectOnEndRef.current) {
         stopSession();
       } else {
-        isSpeakingRef.current = false;
-        setMicrophoneMute(false);
-        setStatus('listening');
+        safeReturnToListening();
       }
     }
-  }, [setMicrophoneMute, stopSession]);
-
-
+  }, [setMicrophoneMute, stopSession, safeReturnToListening]);
 
   // ── Start session ────────────────────────────────────────────────────────────
 
@@ -157,6 +169,8 @@ export function useVoiceSession() {
       setError(null);
       setStatus('connecting');
       setTranscripts([]);
+      disconnectOnEndRef.current = false;
+      isSpeakingRef.current = false;
 
       // 1. Request microphone access
       let stream: MediaStream;
@@ -164,11 +178,13 @@ export function useVoiceSession() {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             channelCount: 1,
+            sampleRate: 48000,
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
           },
         });
+        console.log('[useVoiceSession] Microphone access granted.');
       } catch (micErr) {
         const msg = micErr instanceof Error ? micErr.message : 'Unknown error';
         throw new Error(
@@ -190,6 +206,7 @@ export function useVoiceSession() {
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        console.log('[useVoiceSession] Backend WebSocket OPEN.');
         // 3. Start MediaRecorder once WebSocket is open
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
@@ -199,12 +216,14 @@ export function useVoiceSession() {
         mediaRecorderRef.current = mr;
 
         mr.addEventListener('dataavailable', (e) => {
-          if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-            ws.send(e.data); // Send binary audio chunk to backend
+          if (isSpeakingRef.current) return;
+          if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(e.data);
           }
         });
 
         mr.start(250); // 250ms chunks
+        console.log('[useVoiceSession] MediaRecorder started.');
       };
 
       ws.onmessage = (event) => {
@@ -221,11 +240,17 @@ export function useVoiceSession() {
           switch (msg.type) {
             case 'status':
               const newStatus = msg.status as VoiceStatus;
-              setStatus(newStatus);
-              if (newStatus === 'thinking' || newStatus === 'speaking') {
-                setMicrophoneMute(true);
-              } else if (newStatus === 'listening' && !isSpeakingRef.current) {
-                setMicrophoneMute(false);
+              if (newStatus === 'listening') {
+                if (!isSpeakingRef.current) {
+                  safeReturnToListening();
+                } else {
+                  console.log('[useVoiceSession] Ignored listening status because AI is currently speaking.');
+                }
+              } else {
+                setStatus(newStatus);
+                if (newStatus === 'thinking' || newStatus === 'speaking') {
+                  setMicrophoneMute(true);
+                }
               }
               break;
 
@@ -289,22 +314,19 @@ export function useVoiceSession() {
                 }
 
                 utterance.onstart = () => {
-                  console.log('[useVoiceSession] Browser-native SpeechSynthesis started. Muting microphone.');
+                  console.log('[useVoiceSession] AI speaking started (SpeechSynthesis fallback).');
                   setMicrophoneMute(true);
                   isSpeakingRef.current = true;
                   setStatus('speaking');
                 };
 
                 utterance.onend = () => {
-                  console.log('[useVoiceSession] Browser-native SpeechSynthesis finished.');
+                  console.log('[useVoiceSession] AI speaking finished (SpeechSynthesis fallback).');
                   if (disconnectOnEndRef.current) {
                     console.log('[useVoiceSession] Closing voice session after SpeechSynthesis goodbye.');
                     stopSession();
                   } else {
-                    console.log('[useVoiceSession] Unmuting microphone.');
-                    isSpeakingRef.current = false;
-                    setMicrophoneMute(false);
-                    setStatus('listening');
+                    safeReturnToListening();
                   }
                 };
 
@@ -313,9 +335,7 @@ export function useVoiceSession() {
                   if (disconnectOnEndRef.current) {
                     stopSession();
                   } else {
-                    isSpeakingRef.current = false;
-                    setMicrophoneMute(false);
-                    setStatus('listening');
+                    safeReturnToListening();
                   }
                 };
 
@@ -338,17 +358,20 @@ export function useVoiceSession() {
       };
 
       ws.onclose = () => {
+        console.log('[useVoiceSession] Backend WebSocket CLOSED.');
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
         }
         if (mediaRecorderRef.current?.state === 'recording') {
+          console.log('[useVoiceSession] MediaRecorder stopped.');
           mediaRecorderRef.current.stop();
         }
         setStatus((prev) => (prev === 'connecting' || prev === 'listening' || prev === 'thinking' || prev === 'speaking' ? 'disconnected' : prev));
       };
 
       ws.onerror = () => {
+        console.error('[useVoiceSession] Backend WebSocket ERROR.');
         setError('Connection to AI voice service failed. Check that the backend is running.');
         setStatus('error');
         cleanup();
@@ -359,7 +382,7 @@ export function useVoiceSession() {
       setStatus('error');
       cleanup();
     }
-  }, [cleanup, playAudioBuffer]);
+  }, [cleanup, playAudioBuffer, safeReturnToListening, stopSession]);
 
   // Cleanup on unmount
   useEffect(() => {

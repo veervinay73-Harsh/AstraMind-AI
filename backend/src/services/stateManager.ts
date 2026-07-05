@@ -1,19 +1,6 @@
-import { Groq } from 'groq-sdk';
 import { Logger } from '../utils/logger';
+import { getGroqClient } from '../config/groq';
 import prisma from '../config/prisma';
-
-let groqInstance: Groq | null = null;
-
-const getGroqClient = (): Groq => {
-  if (!groqInstance) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      throw new Error('GROQ_API_KEY is not defined in environment variables.');
-    }
-    groqInstance = new Groq({ apiKey });
-  }
-  return groqInstance;
-};
 
 export interface BookingState {
   intent: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | 'RESCHEDULE_APPOINTMENT' | 'ASK_HOSPITAL_INFORMATION' | 'TALK_TO_HUMAN' | 'UNKNOWN';
@@ -81,7 +68,10 @@ We support the following intents:
 We track the following slot fields:
 1. patient_name: Name of the patient (e.g., "John Doe", "Mary").
 2. doctor: Doctor name or medical specialty/department (e.g., "Dr. Smith", "Cardiologist", "Dermatologist").
-3. date: Date of the appointment. Always format this as YYYY-MM-DD. (Assume current year is 2026. For example: "tomorrow" becomes "2026-07-04" if today is July 3rd, "July 4th" becomes "2026-07-04", and "July 5th" becomes "2026-07-05").
+3. date: 
+        - Natural language terms like "tomorrow", "next Monday" should be resolved to YYYY-MM-DD. Assume current date is ${new Date().toISOString().slice(0, 10)}.
+        - Standardize times to "HH:MM AM/PM" (e.g. "10:00 AM", "02:30 PM").
+      - Only output valid values. If the user hasn't provided a slot, output null for that field.
 4. time: Time of the appointment (e.g., "2:00 PM", "10:30 AM").
 5. phone: Phone number of the caller.
 

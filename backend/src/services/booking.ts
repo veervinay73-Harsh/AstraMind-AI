@@ -6,7 +6,7 @@ import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
 
 export interface BookingResult {
-  status: 'BOOKED' | 'FAILED_SLOT_OCCUPIED' | 'FAILED_DOCTOR_NOT_FOUND' | 'FAILED_MISSING_FIELDS';
+  status: 'BOOKED' | 'FAILED_SLOT_OCCUPIED' | 'FAILED_DOCTOR_NOT_FOUND' | 'FAILED_MISSING_FIELDS' | 'FAILED_INTERNAL_ERROR';
   appointmentId?: string;
   doctor?: string;
   department?: string;
@@ -132,7 +132,7 @@ export const bookAppointment = async (
   } catch (error) {
     Logger.error('Failed to book appointment', error, 'BOOKING_ENGINE');
     return {
-      status: 'FAILED_SLOT_OCCUPIED',
+      status: 'FAILED_INTERNAL_ERROR',
       message: 'Internal server error during appointment booking.',
     };
   }
