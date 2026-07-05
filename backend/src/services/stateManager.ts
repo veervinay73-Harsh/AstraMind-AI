@@ -7,6 +7,7 @@ export interface BookingState {
   state: 'COLLECTING_INFORMATION' | 'CONFIRMATION_REQUIRED' | 'CONFIRMED' | 'OTHER';
   patient_name?: string | null;
   doctor?: string | null;
+  doctorId?: string | null;
   date?: string | null;
   time?: string | null;
   phone?: string | null;
@@ -25,6 +26,7 @@ export const getSessionState = (callSid: string): BookingState => {
       state: 'OTHER',
       patient_name: null,
       doctor: null,
+      doctorId: null,
       date: null,
       time: null,
       phone: null,
@@ -43,7 +45,8 @@ export const clearSessionState = (callSid: string): void => {
 export const processConversationTurn = async (
   callSid: string,
   userUtterance: string,
-  callerPhone?: string
+  callerPhone?: string,
+  hospitalId?: string
 ): Promise<BookingState> => {
   try {
     const groq = getGroqClient();
@@ -132,38 +135,45 @@ You must respond with a raw JSON object containing the updated state:
     };
 
     const parsedDoctor = sanitizeSlot(parsed.doctor);
+    Logger.info(`[STATE_MANAGER_TRACE] Session ID: ${callSid} | Doctor extracted by LLM: "${parsedDoctor}"`, 'STATE_MANAGER');
     const parsedPatientName = sanitizeSlot(parsed.patient_name);
     const parsedPhone = sanitizeSlot(parsed.phone);
     const parsedDate = sanitizeSlot(parsed.date);
     const parsedTime = sanitizeSlot(parsed.time);
 
-    // Validate doctor if extracted in the current turn
     let doctorVal = parsedDoctor;
     let invalidDoc: string | null = null;
     let recDocs: { name: string; specialization: string }[] | null = null;
 
     if (doctorVal) {
+      // Normalize to remove "Doctor " or "Dr. " for robust contains matching
+      const searchName = doctorVal.replace(/^(doctor|dr\.?)\s+/i, '').trim();
+
       // Find if an active doctor exists matching name or specialization
       const activeDoctorsByName = await prisma.doctor.findMany({
         where: {
-          name: { contains: doctorVal, mode: 'insensitive' },
+          name: { contains: searchName, mode: 'insensitive' },
           isActive: true,
+          ...(hospitalId ? { hospitalId } : {}),
         },
       });
 
       const activeDoctorsBySpec = await prisma.doctor.findMany({
         where: {
-          specialization: { contains: doctorVal, mode: 'insensitive' },
+          specialization: { contains: searchName, mode: 'insensitive' },
           isActive: true,
+          ...(hospitalId ? { hospitalId } : {}),
         },
       });
 
       if (activeDoctorsByName.length > 0) {
         doctorVal = activeDoctorsByName[0].name;
+        currentState.doctorId = activeDoctorsByName[0].id;
         invalidDoc = null;
         recDocs = null;
       } else if (activeDoctorsBySpec.length > 0) {
         doctorVal = null;
+        currentState.doctorId = null;
         invalidDoc = null;
         recDocs = activeDoctorsBySpec.map(doc => ({
           name: doc.name,
@@ -172,6 +182,7 @@ You must respond with a raw JSON object containing the updated state:
       } else {
         invalidDoc = doctorVal;
         doctorVal = null;
+        currentState.doctorId = null;
 
         const fallbacks = await prisma.doctor.findMany({
           where: { isActive: true },
@@ -214,6 +225,7 @@ You must respond with a raw JSON object containing the updated state:
       state: finalState as any,
       patient_name: finalPatientName,
       doctor: doctorVal,
+      doctorId: currentState.doctorId,
       date: finalDate,
       time: finalTime,
       phone: finalPhone,
@@ -221,6 +233,8 @@ You must respond with a raw JSON object containing the updated state:
       invalid_doctor: invalidDoc,
       recommended_doctors: recDocs,
     };
+
+    Logger.info(`[STATE_MANAGER_TRACE] Session ID: ${callSid} | Doctor stored in BookingState: "${doctorVal}" | DoctorId: "${currentState.doctorId}" | InvalidDoctor: "${invalidDoc}"`, 'STATE_MANAGER');
 
     return stateStore[callSid];
   } catch (error) {

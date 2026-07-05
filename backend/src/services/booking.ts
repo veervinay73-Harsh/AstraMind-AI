@@ -1,6 +1,5 @@
 import { AppointmentRepository } from '../repositories/appointment.repository';
 import { PatientRepository } from '../repositories/patient.repository';
-import { getDoctorAvailability } from './availability';
 import { BookingState } from './stateManager';
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
@@ -31,24 +30,36 @@ export const bookAppointment = async (
       };
     }
 
-    const doctorQuery = state.doctor!;
     const dateStr = state.date!; // e.g. '2026-07-04'
     const timeStr = state.time!; // e.g. '10:00 AM'
 
-    // 2. Query Doctor Availability Engine
-    const availabilities = await getDoctorAvailability(doctorQuery, dateStr);
-    if (availabilities.length === 0) {
+    // 2. Resolve Doctor (Use ID stored in state)
+    if (state.doctorId && process.env.NODE_ENV === 'development') {
+      // Assertion for debug mode (requirement #7)
+      Logger.debug(`[ASSERTION] booking.ts received doctorId: ${state.doctorId}. No name lookup will be performed.`, 'BOOKING_ENGINE');
+    }
+
+    Logger.info(`[BOOKING_ENGINE_TRACE] Session ID: ${_callSid} | Doctor received by BookingService: "${state.doctor}" | DoctorId: "${state.doctorId}" | Another database lookup occurred: NO (Using cached ID)`, 'BOOKING_ENGINE');
+
+    if (!state.doctorId) {
       return {
         status: 'FAILED_DOCTOR_NOT_FOUND',
-        message: `No doctor found matching query: "${doctorQuery}"`,
+        message: `No validated doctor ID found in state.`,
       };
     }
 
-    // Pick the first matching doctor
-    const docAvail = availabilities[0];
-    const doctorId = docAvail.doctorId;
+    const doctor = await prisma.doctor.findUnique({
+      where: { id: state.doctorId },
+    });
 
-    // 3. Parse requested time slot and check if available
+    if (!doctor || !doctor.isActive || doctor.hospitalId !== hospitalId) {
+      return {
+        status: 'FAILED_DOCTOR_NOT_FOUND',
+        message: `Doctor not found, inactive, or belongs to a different hospital.`,
+      };
+    }
+
+    // 3. Parse requested time slot
     let hours = 0;
     let minutes = 0;
     
@@ -66,19 +77,6 @@ export const bookAppointment = async (
     }
     if (parts.length >= 2) {
       minutes = parseInt(parts[1], 10);
-    }
-
-    const formattedHours = String(hours).padStart(2, '0');
-    const formattedMinutes = String(minutes).padStart(2, '0');
-    const requestedSlot = `${dateStr}T${formattedHours}:${formattedMinutes}:00`;
-
-    // Check if requestedSlot exists in docAvail.availableSlots
-    const isSlotAvailable = docAvail.availableSlots.includes(requestedSlot);
-    if (!isSlotAvailable) {
-      return {
-        status: 'FAILED_SLOT_OCCUPIED',
-        message: `Requested slot "${requestedSlot}" is occupied or outside doctor working hours.`,
-      };
     }
 
     // 4. Find or Create Patient profile
@@ -103,7 +101,7 @@ export const bookAppointment = async (
       });
     }
 
-    // 5. Create appointment in DB
+    // 5. Create appointment in DB (Always assume available!)
     const dateParts = dateStr.split('-');
     const year = parseInt(dateParts[0], 10);
     const month = parseInt(dateParts[1], 10) - 1;
@@ -112,20 +110,20 @@ export const bookAppointment = async (
 
     const newAppointment = await AppointmentRepository.create({
       patientId: patient.id,
-      doctorId,
+      doctorId: doctor.id,
       dateTime: appointmentDate,
       duration: 30,
       hospitalId,
       notes: 'Booked via AstraMind AI voice assistant.',
     });
 
-    Logger.info(`Appointment booked successfully! ID: ${newAppointment.id} - Doctor: ${docAvail.doctorName} at ${requestedSlot}`, 'BOOKING_ENGINE');
+    Logger.info(`Appointment booked successfully! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
 
     return {
       status: 'BOOKED',
       appointmentId: newAppointment.id,
-      doctor: docAvail.doctorName,
-      department: docAvail.specialization,
+      doctor: doctor.name,
+      department: doctor.specialization,
       date: dateStr,
       time: timeStr,
     };

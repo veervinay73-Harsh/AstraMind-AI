@@ -15,10 +15,15 @@ export interface CancellationResult {
 export const cancelAppointment = async (
   patientPhone: string,
   hospitalId: string,
-  doctorQuery?: string | null,
+  doctorId?: string | null,
   targetDateStr?: string | null
 ): Promise<CancellationResult> => {
   try {
+    if (doctorId && process.env.NODE_ENV === 'development') {
+      // Assertion for debug mode (requirement #7)
+      Logger.debug(`[ASSERTION] cancellation.ts received doctorId: ${doctorId}. No name lookup will be performed.`, 'CANCELLATION_ENGINE');
+    }
+
     // 1. Identify the patient
     const patient = await prisma.patient.findUnique({
       where: {
@@ -58,17 +63,14 @@ export const cancelAppointment = async (
       };
     }
 
-    // Filter appointments by doctorQuery or targetDateStr if provided
+    // Filter appointments by doctorId or targetDateStr if provided
     let filtered = appointments;
 
-    if (doctorQuery || targetDateStr) {
+    if (doctorId || targetDateStr) {
       filtered = appointments.filter((appt) => {
         let match = true;
-        if (doctorQuery) {
-          match = match && (
-            appt.doctor.name.toLowerCase().includes(doctorQuery.toLowerCase()) ||
-            appt.doctor.specialization.toLowerCase().includes(doctorQuery.toLowerCase())
-          );
+        if (doctorId) {
+          match = match && (appt.doctorId === doctorId);
         }
         if (targetDateStr) {
           const apptDateStr = appt.dateTime.toISOString().substring(0, 10);
@@ -81,7 +83,7 @@ export const cancelAppointment = async (
     if (filtered.length === 0) {
       return {
         status: 'FAILED_NOT_FOUND',
-        message: `No appointment found matching criteria: Doctor/Specialty: "${doctorQuery || 'any'}", Date: "${targetDateStr || 'any'}".`,
+        message: `No appointment found matching criteria: Doctor ID: "${doctorId || 'any'}", Date: "${targetDateStr || 'any'}".`,
       };
     }
 

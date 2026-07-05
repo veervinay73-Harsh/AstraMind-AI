@@ -14,6 +14,8 @@ export const generateVoiceResponse = async (
     const groq = getGroqClient();
 
     Logger.info(`[RESPONSE_GENERATOR] Generating response for Session ID: "${callSid || 'N/A'}" -> Patient: "${state.patient_name || 'N/A'}", Phone: "${state.phone || 'N/A'}", Doctor: "${state.doctor || 'N/A'}", Date: "${state.date || 'N/A'}", Time: "${state.time || 'N/A'}" | Missing: ${JSON.stringify(state.missing_fields)}`, 'RESPONSE_GENERATOR');
+    Logger.info(`[RESPONSE_GENERATOR_TRACE] Session ID: ${callSid} | Doctor received by ResponseGenerator: "${state.doctor}" | InvalidDoctor: "${state.invalid_doctor}"`, 'RESPONSE_GENERATOR');
+
 
     const systemPrompt = `You are a professional, polite, and concise hospital receptionist voice assistant.
 Your task is to generate a natural, professional textual response for the patient based on their last utterance, their current conversation state, and the outcome of the business tool execution.
@@ -43,8 +45,19 @@ Conversation Flow & Booking Rules:
     2. Ask: "Which doctor would you like to book an appointment with?"
   Do NOT ask generic questions like "Which doctor or specialist would you like to see?" or repeat generic requests when recommendations are provided.
 - When all details are collected (state is "CONFIRMATION_REQUIRED"):
-  Read back all collected details (Patient Name, Phone, Specialty, Date, Time) clearly and ask the patient to confirm the booking (e.g., "I have an appointment for Mr./Ms. <Name> on <Date> at <Time> with a <Specialty> specialist, contact number <Phone>. Would you like me to confirm this booking?").
-- IMPORTANT: When the booking tool has run successfully (i.e., Executed Tool is "BOOK_APPOINTMENT" and Tool Outcome status is "BOOKED" or "SUCCESS"), you MUST output ONLY the closing message: "Thank you, Mr./Ms. [Name]. Your appointment has been successfully booked. We look forward to seeing you. Have a wonderful day. Goodbye." (Replace [Name] with the patient's name, addressing them respectfully as Mr. or Ms.). Do NOT read back the details or ask for confirmation again in this case.
+  Read back all collected details (Patient Name, Phone, Specialty, Date, Time) clearly and ask the patient to confirm the booking: "Would you like me to confirm this appointment?".
+
+*** CRITICAL SCRIPTED RESPONSES ***
+If the booking, cancellation, or rescheduling was successful, you MUST respond exactly verbatim with the scripts below. DO NOT add any conversational filler. Replace the bracketed variables with the actual values.
+
+1. SUCCESSFUL BOOKING (Executed Tool: "BOOK_APPOINTMENT", Tool Outcome status is "BOOKED" or "SUCCESS"):
+"Thank you Mr./Ms. [patient_name]. Your appointment with Dr. [doctor] has been successfully booked for [date] at [time]. Please arrive 15 minutes before your appointment. Thank you for choosing AstraMind Integrated Medical Center. Have a wonderful day. Goodbye."
+
+2. SUCCESSFUL CANCELLATION (Executed Tool: "CANCEL_APPOINTMENT", Tool Outcome status is "CANCELLED" or "SUCCESS"):
+"Your appointment has been cancelled successfully. Thank you for contacting AstraMind Integrated Medical Center. Goodbye."
+
+3. SUCCESSFUL RESCHEDULE (Executed Tool: "RESCHEDULE_APPOINTMENT", Tool Outcome status is "RESCHEDULED" or "SUCCESS"):
+"Your appointment has been rescheduled successfully. Thank you. Goodbye."
 
 Context:
 - User Utterance: "${userUtterance}"

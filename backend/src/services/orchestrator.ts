@@ -19,7 +19,7 @@ export const orchestrateTurn = async (
 ): Promise<OrchestratorResult> => {
   try {
     // 1. Process the conversation turn via the State Manager
-    const state = await processConversationTurn(callSid, userUtterance, callerPhone);
+    const state = await processConversationTurn(callSid, userUtterance, callerPhone, hospitalId);
 
     // 2. Routing Decision Tree based on Intent and State
     
@@ -56,7 +56,7 @@ export const orchestrateTurn = async (
     // Turn C: CANCEL_APPOINTMENT
     if (state.intent === 'CANCEL_APPOINTMENT') {
       Logger.info(`Orchestrator routed to CANCEL_APPOINTMENT for CallSid: ${callSid}`, 'ORCHESTRATOR');
-      const cancelResult = await cancelAppointment(callerPhone, hospitalId, state.doctor, state.date);
+      const cancelResult = await cancelAppointment(callerPhone, hospitalId, state.doctorId, state.date);
       return {
         selected_tool: 'CANCEL_APPOINTMENT',
         reason: 'Customer requested appointment cancellation.',
@@ -72,7 +72,7 @@ export const orchestrateTurn = async (
         hospitalId,
         state.date,
         state.time,
-        state.doctor
+        state.doctorId
       );
       return {
         selected_tool: 'RESCHEDULE_APPOINTMENT',

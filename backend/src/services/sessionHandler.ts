@@ -203,8 +203,10 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
               const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult, sessionId);
               Logger.info(`AI [${sessionId}]: "${voiceResponse}"`, 'SESSION');
 
-              const isBookingSuccess = orchestratorResult.selected_tool === 'BOOK_APPOINTMENT' &&
-                (orchestratorResult.result && (orchestratorResult.result.status === 'BOOKED' || orchestratorResult.result.status === 'SUCCESS' || orchestratorResult.result.appointmentId));
+              const isBookingSuccess = 
+                (orchestratorResult.selected_tool === 'BOOK_APPOINTMENT' && orchestratorResult.result && (orchestratorResult.result.status === 'BOOKED' || orchestratorResult.result.status === 'SUCCESS' || orchestratorResult.result.appointmentId)) ||
+                (orchestratorResult.selected_tool === 'CANCEL_APPOINTMENT' && orchestratorResult.result && (orchestratorResult.result.status === 'CANCELLED' || orchestratorResult.result.status === 'SUCCESS')) ||
+                (orchestratorResult.selected_tool === 'RESCHEDULE_APPOINTMENT' && orchestratorResult.result && (orchestratorResult.result.status === 'RESCHEDULED' || orchestratorResult.result.status === 'SUCCESS'));
 
               send({ type: 'ai_response', text: voiceResponse, disconnectAfterPlay: isBookingSuccess });
               broadcastToDashboard({
