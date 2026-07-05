@@ -765,7 +765,7 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Individual checks */}
-                {Object.entries(health.checks).map(([name, check]) => (
+                {Object.entries(health.checks || {}).map(([name, check]) => (
                   <div key={name} className="flex items-center justify-between">
                     <span className="text-xs text-zinc-500 capitalize">{name}</span>
                     <div className="flex items-center gap-2">

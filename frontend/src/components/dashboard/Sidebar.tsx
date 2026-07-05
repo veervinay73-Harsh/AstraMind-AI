@@ -28,7 +28,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { calls, isConnected } = useLiveCalls();
 
   // Count only active (in-progress) calls for the live badge
-  const activeCallCount = Object.values(calls).filter(
+  const activeCallCount = Object.values(calls || {}).filter(
     (c) => c.status === "active"
   ).length;
 

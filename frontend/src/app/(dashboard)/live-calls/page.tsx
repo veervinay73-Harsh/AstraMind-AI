@@ -26,7 +26,7 @@ export default function LiveCallsPage() {
   const { calls, isConnected, isConnecting, activeCallId, setActiveCallId } = useLiveCalls();
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  const callList = Object.values(calls).sort(
+  const callList = Object.values(calls || {}).sort(
     (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
   );
 
