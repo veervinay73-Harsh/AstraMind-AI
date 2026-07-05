@@ -6,7 +6,7 @@ dotenv.config();
 const apiKey = process.env.DEEPGRAM_API_KEY;
 console.log('API Key loaded:', apiKey);
 
-const deepgramUrl = 'wss://api.deepgram.com/v1/listen?model=nova-2&punctuate=true&interim_results=true&smart_format=true&endpointing=400';
+const deepgramUrl = 'wss://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true&paragraphs=false&filler_words=false&endpointing=500&interim_results=false';
 const ws = new WebSocket(deepgramUrl, {
   headers: { Authorization: `Token ${apiKey}` },
 });

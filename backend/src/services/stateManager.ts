@@ -1,5 +1,6 @@
 import { Groq } from 'groq-sdk';
 import { Logger } from '../utils/logger';
+import prisma from '../config/prisma';
 
 let groqInstance: Groq | null = null;
 
@@ -23,6 +24,8 @@ export interface BookingState {
   time?: string | null;
   phone?: string | null;
   missing_fields: string[];
+  invalid_doctor?: string | null;
+  recommended_doctors?: { name: string; specialization: string }[] | null;
 }
 
 // In-memory conversation state store keyed by CallSid
@@ -39,6 +42,8 @@ export const getSessionState = (callSid: string): BookingState => {
       time: null,
       phone: null,
       missing_fields: [],
+      invalid_doctor: null,
+      recommended_doctors: null,
     };
   }
   return stateStore[callSid];
@@ -128,16 +133,103 @@ You must respond with a raw JSON object containing the updated state:
     // Log the extracted slots before updating the appointment state
     Logger.info(`StateManager extracted raw slots from Groq turn -> Patient Name: "${parsed.patient_name}", Phone: "${parsed.phone}", Doctor: "${parsed.doctor}", Date: "${parsed.date}", Time: "${parsed.time}"`, 'STATE_MANAGER');
     
+    // Helper to sanitize "null" or "undefined" strings from LLM output
+    const sanitizeSlot = (val: any): string | null => {
+      if (val === null || val === undefined) return null;
+      const s = String(val).trim();
+      if (s === 'null' || s === 'undefined' || s === '') return null;
+      return s;
+    };
+
+    const parsedDoctor = sanitizeSlot(parsed.doctor);
+    const parsedPatientName = sanitizeSlot(parsed.patient_name);
+    const parsedPhone = sanitizeSlot(parsed.phone);
+    const parsedDate = sanitizeSlot(parsed.date);
+    const parsedTime = sanitizeSlot(parsed.time);
+
+    // Validate doctor if extracted in the current turn
+    let doctorVal = parsedDoctor;
+    let invalidDoc: string | null = null;
+    let recDocs: { name: string; specialization: string }[] | null = null;
+
+    if (doctorVal) {
+      // Find if an active doctor exists matching name or specialization
+      const activeDoctorsByName = await prisma.doctor.findMany({
+        where: {
+          name: { contains: doctorVal, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+
+      const activeDoctorsBySpec = await prisma.doctor.findMany({
+        where: {
+          specialization: { contains: doctorVal, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+
+      if (activeDoctorsByName.length > 0) {
+        doctorVal = activeDoctorsByName[0].name;
+        invalidDoc = null;
+        recDocs = null;
+      } else if (activeDoctorsBySpec.length > 0) {
+        doctorVal = null;
+        invalidDoc = null;
+        recDocs = activeDoctorsBySpec.map(doc => ({
+          name: doc.name,
+          specialization: doc.specialization
+        }));
+      } else {
+        invalidDoc = doctorVal;
+        doctorVal = null;
+
+        const fallbacks = await prisma.doctor.findMany({
+          where: { isActive: true },
+          take: 5,
+        });
+        recDocs = fallbacks.map(doc => ({
+          name: doc.name,
+          specialization: doc.specialization
+        }));
+      }
+    } else {
+      invalidDoc = currentState.invalid_doctor || null;
+      recDocs = currentState.recommended_doctors || null;
+      doctorVal = currentState.doctor || null;
+    }
+
+    const finalPhone = parsedPhone || currentState.phone || null;
+    const finalPatientName = parsedPatientName || currentState.patient_name || null;
+    const finalDate = parsedDate || currentState.date || null;
+    const finalTime = parsedTime || currentState.time || null;
+
+    const order = ['patient_name', 'phone', 'doctor', 'date', 'time'];
+    const missingFields = order.filter(f => {
+      if (f === 'patient_name') return !finalPatientName;
+      if (f === 'phone') return !finalPhone;
+      if (f === 'doctor') return !doctorVal;
+      if (f === 'date') return !finalDate;
+      if (f === 'time') return !finalTime;
+      return false;
+    });
+
+    let finalState = parsed.state || 'OTHER';
+    if (missingFields.length > 0) {
+      finalState = 'COLLECTING_INFORMATION';
+    }
+
     // Update the in-memory store
     stateStore[callSid] = {
       intent: parsed.intent || 'UNKNOWN',
-      state: parsed.state || 'OTHER',
-      patient_name: parsed.patient_name || null,
-      doctor: parsed.doctor || null,
-      date: parsed.date || null,
-      time: parsed.time || null,
-      phone: parsed.phone || currentState.phone || null,
-      missing_fields: parsed.missing_fields || [],
+      state: finalState as any,
+      patient_name: finalPatientName,
+      doctor: doctorVal,
+      date: finalDate,
+      time: finalTime,
+      phone: finalPhone,
+      missing_fields: missingFields,
+      invalid_doctor: invalidDoc,
+      recommended_doctors: recDocs,
     };
 
     return stateStore[callSid];

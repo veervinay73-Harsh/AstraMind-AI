@@ -59,7 +59,7 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
   }
 
   // Use auto-detect encoding (browser sends webm/opus — Deepgram handles it)
-  const deepgramUrl = 'wss://api.deepgram.com/v1/listen?model=nova-2&punctuate=true&interim_results=true&smart_format=true&endpointing=400';
+  const deepgramUrl = 'wss://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true&paragraphs=false&filler_words=false&endpointing=500&interim_results=false';
   const deepgramWs = new WebSocket(deepgramUrl, {
     headers: { Authorization: `Token ${deepgramApiKey}` },
   });
@@ -133,9 +133,13 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
     try {
       const response = JSON.parse(rawMsg.toString());
       const transcript: string = response.channel?.alternatives?.[0]?.transcript || '';
+      const confidence: number = response.channel?.alternatives?.[0]?.confidence || 1.0;
       const isFinal: boolean = response.is_final === true;
 
       if (!transcript.trim()) return;
+
+      // Log the transcript confidence
+      Logger.info(`Deepgram STT -> Transcript: "${transcript}" | Confidence: ${confidence.toFixed(2)} | isFinal: ${isFinal}`, 'DEEPGRAM');
 
       // Forward transcript to browser
       send({ type: 'transcript', text: transcript, isFinal, speaker: 'patient' });
@@ -151,6 +155,48 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
       });
 
       if (isFinal && !isProcessing) {
+        // Fallback for low-confidence transcriptions
+        if (confidence < 0.6) {
+          Logger.warn(`Low transcription confidence (${confidence.toFixed(2)}). Asking patient to repeat.`, 'DEEPGRAM');
+          isProcessing = true;
+          send({ type: 'status', status: 'thinking' });
+          broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'thinking' });
+
+          const repeatMsg = "I'm sorry, I didn't quite catch that. Could you please repeat it?";
+          send({ type: 'ai_response', text: repeatMsg });
+          broadcastToDashboard({
+            event: 'ai_response_generated',
+            callSid: sessionId,
+            response: repeatMsg,
+            speaker: 'ai',
+            timestamp: new Date().toISOString(),
+          });
+
+          send({ type: 'status', status: 'speaking' });
+          broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'speaking' });
+
+          synthesizeSpeech(repeatMsg)
+            .then((audioBuffer) => {
+              if (audioBuffer && ws.readyState === WebSocket.OPEN) {
+                ws.send(audioBuffer);
+                send({ type: 'audio_end' });
+              } else {
+                send({ type: 'tts_failed', text: repeatMsg });
+              }
+              send({ type: 'status', status: 'listening' });
+              broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+              isProcessing = false;
+            })
+            .catch((err) => {
+              Logger.error('Speech synthesis failed in low-confidence fallback', err, 'SESSION');
+              send({ type: 'tts_failed', text: repeatMsg });
+              send({ type: 'status', status: 'listening' });
+              broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+              isProcessing = false;
+            });
+          return;
+        }
+
         isProcessing = true;
         Logger.info(`Patient [${sessionId}]: "${transcript}"`, 'SESSION');
 
@@ -174,7 +220,7 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
             });
 
             // Generate natural language response
-            const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult);
+            const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult, sessionId);
             Logger.info(`AI [${sessionId}]: "${voiceResponse}"`, 'SESSION');
 
             const isBookingSuccess = orchestratorResult.selected_tool === 'BOOK_APPOINTMENT' &&

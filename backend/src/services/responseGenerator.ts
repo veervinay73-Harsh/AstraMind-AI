@@ -19,10 +19,13 @@ const getGroqClient = (): Groq => {
 export const generateVoiceResponse = async (
   userUtterance: string,
   state: BookingState,
-  orchestratorResult: OrchestratorResult
+  orchestratorResult: OrchestratorResult,
+  callSid?: string
 ): Promise<string> => {
   try {
     const groq = getGroqClient();
+
+    Logger.info(`[RESPONSE_GENERATOR] Generating response for Session ID: "${callSid || 'N/A'}" -> Patient: "${state.patient_name || 'N/A'}", Phone: "${state.phone || 'N/A'}", Doctor: "${state.doctor || 'N/A'}", Date: "${state.date || 'N/A'}", Time: "${state.time || 'N/A'}" | Missing: ${JSON.stringify(state.missing_fields)}`, 'RESPONSE_GENERATOR');
 
     const systemPrompt = `You are a professional, polite, and concise hospital receptionist voice assistant.
 Your task is to generate a natural, professional textual response for the patient based on their last utterance, their current conversation state, and the outcome of the business tool execution.
@@ -42,6 +45,15 @@ Conversation Flow & Booking Rules:
     4. Preferred Date (date) -> Then ask for the preferred appointment date.
     5. Preferred Time (time) -> Finally ask for the preferred time.
   Strictly follow this order. Do not ask for a subsequent field if any prior field in the list is still missing.
+- Handling Invalid Doctor or Specialization Recommendations:
+  If the state contains "invalid_doctor" (meaning the patient requested a doctor or specialization that doesn't exist or is inactive):
+    1. Politely inform the patient that the requested doctor or specialization is not available.
+    2. Read out the "recommended_doctors" list (specifying the Doctor Name and Specialization for each).
+    3. Ask: "Which doctor would you like to book an appointment with?"
+  If the state contains "recommended_doctors" but no "invalid_doctor" (for example, they asked for a specialization like "Cardiologist"):
+    1. Recommend the doctors listed under that specialization in "recommended_doctors" (specifying Doctor Name and Specialization).
+    2. Ask: "Which doctor would you like to book an appointment with?"
+  Do NOT ask generic questions like "Which doctor or specialist would you like to see?" or repeat generic requests when recommendations are provided.
 - When all details are collected (state is "CONFIRMATION_REQUIRED"):
   Read back all collected details (Patient Name, Phone, Specialty, Date, Time) clearly and ask the patient to confirm the booking (e.g., "I have an appointment for Mr./Ms. <Name> on <Date> at <Time> with a <Specialty> specialist, contact number <Phone>. Would you like me to confirm this booking?").
 - IMPORTANT: When the booking tool has run successfully (i.e., Executed Tool is "BOOK_APPOINTMENT" and Tool Outcome status is "BOOKED" or "SUCCESS"), you MUST output ONLY the closing message: "Thank you, Mr./Ms. [Name]. Your appointment has been successfully booked. We look forward to seeing you. Have a wonderful day. Goodbye." (Replace [Name] with the patient's name, addressing them respectfully as Mr. or Ms.). Do NOT read back the details or ask for confirmation again in this case.
