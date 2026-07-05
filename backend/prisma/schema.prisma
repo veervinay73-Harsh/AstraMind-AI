@@ -48,12 +48,16 @@ model Doctor {
 }
 
 model Patient {
-  id         String        @id @default(uuid())
-  name       String
-  phone      String        // Caller phone number
-  email      String?
-  dob        DateTime?     // For identity validation
-  hospitalId String
+  id               String        @id @default(uuid())
+  name             String
+  phone            String        // Caller phone number
+  email            String?
+  dob              DateTime?     // For identity validation
+  age              Int?
+  gender           String?
+  isNewPatient     Boolean?      @default(true)
+  insuranceDetails String?
+  hospitalId       String
   hospital   Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
@@ -78,12 +82,15 @@ model Appointment {
   patient    Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctorId   String
   doctor     Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  dateTime   DateTime
-  duration   Int               @default(30) // Minutes
-  status     AppointmentStatus @default(PENDING)
-  notes      String?
-  hospitalId String
-  hospital   Hospital          @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  dateTime       DateTime
+  duration       Int               @default(30) // Minutes
+  status         AppointmentStatus @default(PENDING)
+  notes          String?
+  department     String?
+  reasonForVisit String?
+  symptoms       String?
+  hospitalId     String
+  hospital       Hospital          @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
   callLogId  String?           @unique
   callLog    CallLog?          @relation(fields: [callLogId], references: [id], onDelete: SetNull)
   createdAt  DateTime          @default(now())

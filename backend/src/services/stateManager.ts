@@ -6,11 +6,18 @@ export interface BookingState {
   intent: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | 'RESCHEDULE_APPOINTMENT' | 'ASK_HOSPITAL_INFORMATION' | 'TALK_TO_HUMAN' | 'UNKNOWN';
   state: 'COLLECTING_INFORMATION' | 'CONFIRMATION_REQUIRED' | 'CONFIRMED' | 'OTHER';
   patient_name?: string | null;
+  phone?: string | null;
+  age?: number | null;
+  gender?: string | null;
+  is_new_patient?: boolean | null;
+  department?: string | null;
   doctor?: string | null;
   doctorId?: string | null;
+  reason_for_visit?: string | null;
+  symptoms?: string | null;
   date?: string | null;
   time?: string | null;
-  phone?: string | null;
+  insurance_details?: string | null;
   missing_fields: string[];
   invalid_doctor?: string | null;
   recommended_doctors?: { name: string; specialization: string }[] | null;
@@ -25,11 +32,18 @@ export const getSessionState = (callSid: string): BookingState => {
       intent: 'UNKNOWN',
       state: 'OTHER',
       patient_name: null,
+      phone: null,
+      age: null,
+      gender: null,
+      is_new_patient: null,
+      department: null,
       doctor: null,
       doctorId: null,
+      reason_for_visit: null,
+      symptoms: null,
       date: null,
       time: null,
-      phone: null,
+      insurance_details: null,
       missing_fields: [],
       invalid_doctor: null,
       recommended_doctors: null,
@@ -70,13 +84,19 @@ We support the following intents:
 
 We track the following slot fields:
 1. patient_name: Name of the patient (e.g., "John Doe", "Mary").
-2. doctor: Doctor name or medical specialty/department (e.g., "Dr. Smith", "Cardiologist", "Dermatologist").
-3. date: 
+2. phone: Phone number of the caller.
+3. age: Age of the patient (number).
+4. gender: Gender of the patient.
+5. is_new_patient: Boolean, whether they are a new or existing patient.
+6. department: The hospital department (e.g., "Cardiology", "General Physician").
+7. doctor: Preferred doctor name, if any (e.g., "Dr. Smith").
+8. reason_for_visit: Short description of why they need an appointment.
+9. symptoms: Any symptoms described, if applicable.
+10. date: 
         - Natural language terms like "tomorrow", "next Monday" should be resolved to YYYY-MM-DD. Assume current date is ${new Date().toISOString().slice(0, 10)}.
-        - Standardize times to "HH:MM AM/PM" (e.g. "10:00 AM", "02:30 PM").
-      - Only output valid values. If the user hasn't provided a slot, output null for that field.
-4. time: Time of the appointment (e.g., "2:00 PM", "10:30 AM").
-5. phone: Phone number of the caller.
+        - Only output valid values. If the user hasn't provided a slot, output null for that field.
+11. time: Time of the appointment (e.g., "2:00 PM", "10:30 AM").
+12. insurance_details: Insurance provider or policy info, if mentioned.
 
 Current session details:
 ${JSON.stringify(currentState, null, 2)}
@@ -88,22 +108,29 @@ Rules for updates:
 - Retain existing values for slots unless the user explicitly updates or changes them in their new utterance.
 - Extract new values for slots if mentioned in the utterance.
 - Always convert conversational dates into YYYY-MM-DD format.
-- Always convert and normalize natural-language time expressions into standard "HH:MM AM/PM" format (e.g., "5 PM" becomes "5:00 PM", "five in the evening" becomes "5:00 PM", "half past 3" becomes "3:30 PM", "10 AM" becomes "10:00 AM", "around 5 o'clock" becomes "5:00 PM").
-- Set the "state" to "COLLECTING_INFORMATION" if any of the following required slots are missing for booking: ["patient_name", "phone", "doctor", "date", "time"].
-- Set the "state" to "CONFIRMATION_REQUIRED" if all of ["patient_name", "phone", "doctor", "date", "time"] are present, but the user hasn't explicitly confirmed yet.
-- Set the "state" to "CONFIRMED" if all slots are present and the user explicitly agrees/confirms (e.g., "yes", "confirm", "that sounds good", "perfect").
-- List any missing fields from ["patient_name", "phone", "doctor", "date", "time"] in the "missing_fields" array. The order in this array MUST reflect the exact missing fields in this priority order: patient_name, phone, doctor, date, time.
+- Always convert and normalize natural-language time expressions into standard "HH:MM AM/PM" format.
+- Set the "state" to "COLLECTING_INFORMATION" if any of the following required slots are missing for booking: ["patient_name", "phone", "age", "gender", "is_new_patient", "department", "reason_for_visit", "date", "time"]. (doctor, symptoms, and insurance_details are optional).
+- Set the "state" to "CONFIRMATION_REQUIRED" if all required slots are present, but the user hasn't explicitly confirmed yet.
+- Set the "state" to "CONFIRMED" if all required slots are present and the user explicitly agrees/confirms (e.g., "yes", "confirm", "that sounds good", "perfect").
+- List any missing fields from the required slots in the "missing_fields" array. The order in this array MUST reflect the exact missing fields in this priority order: patient_name, phone, age, gender, is_new_patient, department, reason_for_visit, date, time.
 
 You must respond with a raw JSON object containing the updated state:
 {
   "intent": "BOOK_APPOINTMENT" | "CANCEL_APPOINTMENT" | "RESCHEDULE_APPOINTMENT" | "ASK_HOSPITAL_INFORMATION" | "TALK_TO_HUMAN" | "UNKNOWN",
   "state": "COLLECTING_INFORMATION" | "CONFIRMATION_REQUIRED" | "CONFIRMED" | "OTHER",
-  "patient_name": "value" or null,
-  "doctor": "value" or null,
-  "date": "value" or null,
-  "time": "value" or null,
-  "phone": "value" or null,
-  "missing_fields": ["field1", "field2"]
+  "patient_name": string | null,
+  "phone": string | null,
+  "age": number | null,
+  "gender": string | null,
+  "is_new_patient": boolean | null,
+  "department": string | null,
+  "doctor": string | null,
+  "reason_for_visit": string | null,
+  "symptoms": string | null,
+  "date": string | null,
+  "time": string | null,
+  "insurance_details": string | null,
+  "missing_fields": string[]
 }`;
 
     const response = await groq.chat.completions.create({

@@ -23,6 +23,10 @@ export class PatientRepository {
     phone: string;
     email?: string;
     dob?: Date;
+    age?: number;
+    gender?: string;
+    isNewPatient?: boolean;
+    insuranceDetails?: string;
     hospitalId: string;
   }): Promise<Patient> {
     return prisma.patient.create({
@@ -37,6 +41,10 @@ export class PatientRepository {
       phone?: string;
       email?: string;
       dob?: Date;
+      age?: number;
+      gender?: string;
+      isNewPatient?: boolean;
+      insuranceDetails?: string;
     }
   ): Promise<Patient> {
     return prisma.patient.update({

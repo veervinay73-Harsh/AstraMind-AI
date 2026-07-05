@@ -28,6 +28,10 @@ interface Patient {
   name: string;
   phone: string;
   email: string | null;
+  age: number | null;
+  gender: string | null;
+  isNewPatient: boolean | null;
+  insuranceDetails: string | null;
 }
 
 interface Doctor {
@@ -43,6 +47,9 @@ interface Appointment {
   dateTime: string;
   status: string;
   notes: string | null;
+  department: string | null;
+  reasonForVisit: string | null;
+  symptoms: string | null;
   hospitalId: string;
   callLogId: string | null;
   patient: Patient;
@@ -432,6 +439,30 @@ export default function AppointmentsPage() {
                       {selectedAppt.patient?.email || "N/A"}
                     </span>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">Age</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">
+                      {selectedAppt.patient?.age || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">Gender</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white capitalize">
+                      {selectedAppt.patient?.gender || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">Patient Type</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">
+                      {selectedAppt.patient?.isNewPatient === null || selectedAppt.patient?.isNewPatient === undefined ? "N/A" : (selectedAppt.patient.isNewPatient ? "New Patient" : "Existing Patient")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">Insurance</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white truncate max-w-[200px]" title={selectedAppt.patient?.insuranceDetails || "N/A"}>
+                      {selectedAppt.patient?.insuranceDetails || "N/A"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -448,7 +479,19 @@ export default function AppointmentsPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Department</span>
-                    <span className="font-semibold text-zinc-900 dark:text-white">{selectedAppt.doctor?.specialization}</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">{selectedAppt.department || selectedAppt.doctor?.specialization || "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Reason for Visit</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white truncate max-w-[200px]" title={selectedAppt.reasonForVisit || "N/A"}>
+                      {selectedAppt.reasonForVisit || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Symptoms</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white truncate max-w-[200px]" title={selectedAppt.symptoms || "N/A"}>
+                      {selectedAppt.symptoms || "N/A"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Date</span>

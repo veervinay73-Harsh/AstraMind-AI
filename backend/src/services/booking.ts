@@ -21,7 +21,7 @@ export const bookAppointment = async (
 ): Promise<BookingResult> => {
   try {
     // 1. Verify all required booking fields are present
-    const required: (keyof BookingState)[] = ['doctor', 'date', 'time', 'patient_name', 'phone'];
+    const required: (keyof BookingState)[] = ['patient_name', 'phone', 'age', 'gender', 'is_new_patient', 'department', 'reason_for_visit', 'date', 'time'];
     const missing = required.filter((field) => !state[field]);
     if (missing.length > 0) {
       return {
@@ -97,7 +97,18 @@ export const bookAppointment = async (
       patient = await PatientRepository.create({
         name: patientName,
         phone: patientPhone,
+        age: state.age || undefined,
+        gender: state.gender || undefined,
+        isNewPatient: state.is_new_patient ?? undefined,
+        insuranceDetails: state.insurance_details || undefined,
         hospitalId,
+      });
+    } else {
+      // Update existing patient with new info
+      patient = await PatientRepository.update(patient.id, {
+        age: state.age || patient.age || undefined,
+        gender: state.gender || patient.gender || undefined,
+        insuranceDetails: state.insurance_details || patient.insuranceDetails || undefined,
       });
     }
 
@@ -114,6 +125,9 @@ export const bookAppointment = async (
       dateTime: appointmentDate,
       duration: 30,
       hospitalId,
+      department: state.department || doctor.specialization,
+      reasonForVisit: state.reason_for_visit || undefined,
+      symptoms: state.symptoms || undefined,
       notes: 'Booked via AstraMind AI voice assistant.',
     });
 

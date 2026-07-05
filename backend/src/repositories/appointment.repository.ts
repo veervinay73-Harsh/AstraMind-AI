@@ -48,6 +48,9 @@ export class AppointmentRepository {
     dateTime: Date;
     duration?: number;
     notes?: string;
+    department?: string;
+    reasonForVisit?: string;
+    symptoms?: string;
     hospitalId: string;
     callLogId?: string;
   }): Promise<Appointment> {
