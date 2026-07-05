@@ -1,201 +1,207 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
-  Mic, MicOff, PhoneOff, Brain, Volume2, Wifi, WifiOff, AlertCircle, Zap,
+  Phone,
+  PhoneOff,
+  Volume2,
+  Video,
+  MicOff,
+  Mic,
+  MessageSquare,
+  Grid3X3,
+  BrainCircuit,
+  Zap
 } from 'lucide-react';
 import { useVoiceSession } from '../../hooks/useVoiceSession';
-import { AudioVisualizer } from './AudioVisualizer';
-import { ConnectionStatus } from './ConnectionStatus';
-
-// ── Call-to-action button label ────────────────────────────────────────────────
-
-function getButtonLabel(status: ReturnType<typeof useVoiceSession>['status']): string {
-  switch (status) {
-    case 'idle': return 'Start AI Conversation';
-    case 'connecting': return 'Connecting…';
-    case 'listening': return 'Listening — speak now';
-    case 'thinking': return 'AI is thinking…';
-    case 'speaking': return 'AI is speaking…';
-    case 'error': return 'Retry Conversation';
-    case 'disconnected': return 'Reconnect';
-  }
-}
-
-// ── VoiceWidget ────────────────────────────────────────────────────────────────
 
 export function VoiceWidget() {
-  const { status, transcripts, error, sessionId, startSession, stopSession, isActive } =
-    useVoiceSession();
-
+  const { status, transcripts, error, startSession, stopSession, isActive, isMuted, toggleMute } = useVoiceSession();
+  const [showTranscript, setShowTranscript] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll transcript panel
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcripts]);
+    if (showTranscript) {
+      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [transcripts, showTranscript]);
 
   const handleMainAction = () => {
     if (isActive) {
       stopSession();
+      setShowTranscript(false);
     } else {
       startSession();
     }
   };
 
+
+
+  const isConnected = status === 'listening' || status === 'speaking' || status === 'thinking';
+  const isConnecting = status === 'connecting';
+
   return (
-    <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm">
-
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-900">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-            isActive
-              ? 'bg-indigo-600 shadow-lg shadow-indigo-500/30'
-              : 'bg-zinc-100 dark:bg-zinc-900'
-          }`}>
-            {status === 'thinking'
-              ? <Brain className={`h-4 w-4 ${isActive ? 'text-white animate-spin' : 'text-zinc-500'}`} />
-              : status === 'speaking'
-              ? <Volume2 className={`h-4 w-4 ${isActive ? 'text-white animate-bounce' : 'text-zinc-500'}`} />
-              : <Mic className={`h-4 w-4 ${isActive ? 'text-white' : 'text-zinc-500'}`} />
-            }
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
-              AI Voice Conversation
-            </h2>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
-              Powered by LiveKit · Deepgram · Groq · ElevenLabs
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Connection status badge */}
-          <ConnectionStatus status={status} />
-
-          {/* Session ID pill */}
-          {sessionId && (
-            <span className="hidden sm:flex items-center gap-1 text-[9px] font-mono text-zinc-400 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 px-2 py-0.5 rounded-full">
-              <Wifi className="h-2.5 w-2.5" />
-              {sessionId.slice(-8)}
-            </span>
-          )}
-        </div>
+    <div className="relative w-full max-w-[360px] mx-auto aspect-[9/19.5] max-h-[850px] min-h-[650px] bg-[#000000] rounded-[3rem] overflow-hidden border-[10px] border-[#181818] shadow-2xl flex flex-col font-sans text-white">
+      
+      {/* ── Dynamic Island / Top Bar Placeholder ── */}
+      <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-6 pointer-events-none z-10 text-[13px] font-semibold">
+        <span className="w-12 text-center">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+        <div className="w-[120px] h-7 bg-black rounded-full mt-2" />
+        <span className="w-12 flex justify-end gap-1 items-center">
+          <div className="w-4 h-3 border border-white/40 rounded-sm relative"><div className="absolute inset-[1px] bg-white rounded-[1px] w-[80%]" /></div>
+        </span>
       </div>
 
-      {/* ── Main Content ── */}
-      <div className="p-5 space-y-5">
+      {/* ── Avatar & Status ── */}
+      <div className="flex flex-col items-center pt-24 px-6 flex-1 z-10 relative">
+        {/* Avatar */}
+        <div className="relative w-[110px] h-[110px] rounded-full bg-[#111115] flex items-center justify-center mb-5 shadow-[0_0_40px_rgba(59,130,246,0.1)] border border-[#2a2a30]">
+          <BrainCircuit className="w-14 h-14 text-blue-500" />
+          {/* Subtle glow if active */}
+          {(isConnecting || isConnected) && (
+            <div className="absolute inset-0 rounded-full bg-blue-500/10 blur-xl animate-pulse pointer-events-none" />
+          )}
+        </div>
+
+        {/* Status Text (if active) */}
+        {(isConnecting || isConnected) && (
+          <p className="text-zinc-400 text-[15px] mb-1 font-medium tracking-wide animate-pulse">
+            {isConnecting ? 'Calling...' : status === 'thinking' ? 'Processing...' : status === 'speaking' ? 'Speaking...' : '00:00'}
+          </p>
+        )}
+
+        {/* Title */}
+        <h1 className="text-3xl font-semibold tracking-tight text-white mb-1.5 text-center px-2">
+          Customer Support
+        </h1>
+
+        {/* Subtitle */}
+        <p className="text-zinc-400 text-[16px] text-center mb-8">
+          Delivery Assistant
+        </p>
+
+        {/* Call-to-action text (only if idle) */}
+        {!isActive && (
+          <p className="text-zinc-400 text-[14px] text-center max-w-[260px] leading-[1.4] opacity-80">
+            Click the call button to connect to the automated AI delivery support line.
+          </p>
+        )}
 
         {/* Error Banner */}
         {error && (
-          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30">
-            <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-rose-700 dark:text-rose-400">{error}</p>
+          <div className="mt-4 px-4 py-2.5 bg-red-900/30 border border-red-500/30 rounded-xl max-w-[90%]">
+            <p className="text-red-400 text-[13px] text-center leading-snug">{error}</p>
           </div>
         )}
-
-        {/* Visualizer + CTA */}
-        <div className="flex flex-col items-center gap-4 py-4">
-          {/* Audio visualizer */}
-          <AudioVisualizer status={status} barCount={9} />
-
-          {/* AI Status label */}
-          <p className="text-xs font-medium text-zinc-500 h-4 transition-all">
-            {status === 'listening' && '🎤 Speak — I\'m listening'}
-            {status === 'thinking' && '🤖 Processing your request…'}
-            {status === 'speaking' && '🔊 AI is responding via ElevenLabs…'}
-            {status === 'connecting' && '🔌 Establishing secure voice channel…'}
-            {(status === 'idle' || status === 'disconnected') && 'Click to start a browser-based voice conversation'}
-            {status === 'error' && 'Session ended due to an error'}
-          </p>
-
-          {/* Main Action Button */}
-          <button
-            onClick={handleMainAction}
-            disabled={status === 'connecting'}
-            className={`group relative flex items-center gap-2.5 h-12 px-7 rounded-2xl font-semibold text-sm transition-all duration-200 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed ${
-              isActive
-                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20 hover:shadow-indigo-500/40 hover:scale-[1.02]'
-            }`}
-          >
-            {isActive ? (
-              <>
-                <PhoneOff className="h-4 w-4" />
-                End Session
-              </>
-            ) : (
-              <>
-                <Mic className="h-4 w-4" />
-                {getButtonLabel(status)}
-              </>
-            )}
-
-            {/* Pulse ring when active */}
-            {isActive && (
-              <span className="absolute -inset-1 rounded-2xl border-2 border-rose-400/40 animate-ping pointer-events-none" />
-            )}
-          </button>
-
-          {/* Mute hint when active */}
-          {status === 'listening' && (
-            <p className="text-[10px] text-zinc-400 flex items-center gap-1">
-              <MicOff className="h-3 w-3" />
-              Click End Session to stop the conversation
-            </p>
-          )}
-        </div>
-
-        {/* ── Transcript Panel ── */}
-        {transcripts.length > 0 && (
-          <div className="rounded-xl border border-zinc-100 dark:border-zinc-900 bg-zinc-50/50 dark:bg-zinc-900/20">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-900">
-              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Zap className="h-3 w-3 text-indigo-400" />
-                Live Transcript
-              </span>
-              <span className="text-[10px] text-zinc-400">{transcripts.length} exchanges</span>
-            </div>
-
-            <div className="p-4 max-h-56 overflow-y-auto space-y-3">
-              {transcripts.map((entry) => {
-                const isAi = entry.speaker === 'ai';
-                return (
-                  <div
-                    key={entry.id}
-                    className={`flex flex-col max-w-[85%] ${isAi ? 'mr-auto items-start' : 'ml-auto items-end'}`}
-                  >
-                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mb-1 px-1">
-                      {isAi ? '🤖 AstraMind AI' : '🎤 You'}
-                    </span>
-                    <div
-                      className={`px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${
-                        isAi
-                          ? 'bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-tl-sm'
-                          : 'bg-indigo-600 text-white rounded-tr-sm'
-                      } ${!entry.isFinal ? 'opacity-60 italic' : ''}`}
-                    >
-                      {entry.text}
-                    </div>
-                    <span className="text-[9px] text-zinc-400 mt-1 px-1">
-                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                  </div>
-                );
-              })}
-              <div ref={transcriptEndRef} />
-            </div>
-          </div>
-        )}
-
-        {/* ── Architecture badge ── */}
-        <div className="flex items-center justify-center gap-1.5 text-[9px] text-zinc-300 dark:text-zinc-700 font-mono pt-1">
-          <WifiOff className="h-2.5 w-2.5" />
-          <span>No PSTN · No Phone Number · Browser-Native WebRTC</span>
-        </div>
       </div>
+
+      {/* ── Transcript Overlay ── */}
+      {showTranscript && isActive && (
+        <div className="absolute inset-x-4 top-1/4 bottom-[300px] bg-zinc-900/90 backdrop-blur-md rounded-[1.5rem] border border-white/10 p-5 overflow-y-auto flex flex-col gap-3.5 z-20 shadow-2xl">
+          <div className="sticky top-0 bg-zinc-900/90 pb-2 text-[11px] font-semibold text-zinc-400 uppercase tracking-widest flex items-center justify-between border-b border-white/10 mb-2">
+            <div className="flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-blue-400" />
+              Live Transcript
+            </div>
+            <span>{transcripts.length} msgs</span>
+          </div>
+          {transcripts.map((entry) => {
+            const isAi = entry.speaker === 'ai';
+            return (
+              <div
+                key={entry.id}
+                className={`flex flex-col max-w-[85%] ${isAi ? 'mr-auto items-start' : 'ml-auto items-end'}`}
+              >
+                <div
+                  className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed shadow-sm ${
+                    isAi
+                      ? 'bg-[#2c2c2e] text-white rounded-tl-sm'
+                      : 'bg-blue-600 text-white rounded-tr-sm'
+                  } ${!entry.isFinal ? 'opacity-60 italic' : ''}`}
+                >
+                  {entry.text}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={transcriptEndRef} />
+        </div>
+      )}
+
+      {/* ── Bottom Controls ── */}
+      <div className="w-full pb-[4.5rem] px-6 flex flex-col items-center mt-auto z-10 relative">
+        
+        {isActive ? (
+          /* Active Call Controls Grid */
+          <div className="w-full max-w-[290px] mx-auto">
+            <div className="grid grid-cols-3 gap-y-[26px] gap-x-5 mb-14">
+              
+              <div className="flex flex-col items-center gap-2 cursor-pointer">
+                <div className="w-[72px] h-[72px] rounded-full bg-[#333333] flex items-center justify-center transition-colors hover:bg-[#444444]">
+                  <Volume2 className="w-[28px] h-[28px] text-white fill-white" />
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">speaker</span>
+              </div>
+              
+              <div className="flex flex-col items-center gap-2 cursor-not-allowed opacity-40">
+                <div className="w-[72px] h-[72px] rounded-full bg-[#333333] flex items-center justify-center">
+                  <Video className="w-8 h-8 text-white fill-transparent" />
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">FaceTime</span>
+              </div>
+              
+              <div 
+                className="flex flex-col items-center gap-2 cursor-pointer"
+                onClick={toggleMute}
+              >
+                <div className={`w-[72px] h-[72px] rounded-full flex items-center justify-center transition-colors ${isMuted ? 'bg-white text-black' : 'bg-[#333333] text-white hover:bg-[#444444]'}`}>
+                  {isMuted ? <MicOff className="w-[28px] h-[28px]" /> : <Mic className="w-[28px] h-[28px]" />}
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">mute</span>
+              </div>
+              
+              <div 
+                className="flex flex-col items-center gap-2 cursor-pointer"
+                onClick={() => setShowTranscript(!showTranscript)}
+              >
+                <div className={`w-[72px] h-[72px] rounded-full flex items-center justify-center transition-colors ${showTranscript ? 'bg-white text-black' : 'bg-[#333333] text-white hover:bg-[#444444]'}`}>
+                  <MessageSquare className="w-7 h-7" />
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">transcript</span>
+              </div>
+              
+              {/* Red End Button */}
+              <div className="flex flex-col items-center gap-2 cursor-pointer col-start-2 row-start-2" onClick={handleMainAction}>
+                <div className="w-[72px] h-[72px] rounded-full bg-[#ff3b30] flex items-center justify-center hover:bg-[#ff453a] transition-transform active:scale-95 shadow-[0_0_20px_rgba(255,59,48,0.2)]">
+                  <PhoneOff className="w-8 h-8 text-white fill-white" />
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">End</span>
+              </div>
+
+              <div className="flex flex-col items-center gap-2 cursor-not-allowed opacity-40 col-start-3 row-start-2">
+                <div className="w-[72px] h-[72px] rounded-full bg-[#333333] flex items-center justify-center">
+                  <Grid3X3 className="w-7 h-7 text-white" />
+                </div>
+                <span className="text-[13px] text-zinc-100 tracking-wide">keypad</span>
+              </div>
+
+            </div>
+          </div>
+        ) : (
+          /* Idle State Call Button */
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={handleMainAction}
+              className="w-[76px] h-[76px] rounded-full bg-[#34c759] hover:bg-[#30d158] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(52,199,89,0.3)]"
+            >
+              <Phone className="w-9 h-9 text-white fill-white" />
+            </button>
+            <span className="text-[14px] font-medium text-zinc-100 mt-1">Call Support</span>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

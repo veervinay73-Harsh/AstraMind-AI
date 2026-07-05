@@ -35,6 +35,7 @@ export function useVoiceSession() {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -48,6 +49,7 @@ export function useVoiceSession() {
   // ── Microphone control helpers ──────────────────────────────────────────────
 
   const setMicrophoneMute = useCallback((muted: boolean) => {
+    setIsMuted(muted);
     if (streamRef.current) {
       streamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !muted;
@@ -55,6 +57,10 @@ export function useVoiceSession() {
       console.log(`[useVoiceSession] Microphone track ${muted ? 'MUTED' : 'UNMUTED'}.`);
     }
   }, []);
+
+  const toggleMute = useCallback(() => {
+    setMicrophoneMute(!isMuted);
+  }, [isMuted, setMicrophoneMute]);
 
   const safeReturnToListening = useCallback(() => {
     console.log('[useVoiceSession] Synchronizing state to transition to LISTENING...');
@@ -396,6 +402,8 @@ export function useVoiceSession() {
     sessionId,
     startSession,
     stopSession,
+    isMuted,
+    toggleMute,
     isActive: status !== 'idle' && status !== 'disconnected' && status !== 'error',
   };
 }
