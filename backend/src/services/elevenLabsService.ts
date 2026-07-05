@@ -14,6 +14,7 @@ export const synthesizeSpeech = async (text: string): Promise<Buffer | null> => 
   const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 
   try {
+    Logger.info(`Sending request to ElevenLabs TTS API for voice ID: ${voiceId} with text: "${text.slice(0, 60)}..."`, 'ELEVENLABS');
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
       {

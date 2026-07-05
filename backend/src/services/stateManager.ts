@@ -57,8 +57,8 @@ export const processConversationTurn = async (
     const groq = getGroqClient();
     const currentState = getSessionState(callSid);
 
-    // Auto-fill phone from caller number if available and not yet set
-    if (callerPhone && !currentState.phone) {
+    // Auto-fill phone from caller number if available and not yet set (only if it starts with '+' to represent a real phone number)
+    if (callerPhone && !currentState.phone && callerPhone.startsWith('+')) {
       currentState.phone = callerPhone;
     }
 
@@ -90,10 +90,11 @@ Rules for updates:
 - Retain existing values for slots unless the user explicitly updates or changes them in their new utterance.
 - Extract new values for slots if mentioned in the utterance.
 - Always convert conversational dates into YYYY-MM-DD format.
-- Set the "state" to "COLLECTING_INFORMATION" if any of the following required slots are missing for booking: ["doctor", "date", "time", "patient_name"].
-- Set the "state" to "CONFIRMATION_REQUIRED" if all of ["doctor", "date", "time", "patient_name"] are present, but the user hasn't explicitly confirmed yet.
+- Always convert and normalize natural-language time expressions into standard "HH:MM AM/PM" format (e.g., "5 PM" becomes "5:00 PM", "five in the evening" becomes "5:00 PM", "half past 3" becomes "3:30 PM", "10 AM" becomes "10:00 AM", "around 5 o'clock" becomes "5:00 PM").
+- Set the "state" to "COLLECTING_INFORMATION" if any of the following required slots are missing for booking: ["patient_name", "phone", "doctor", "date", "time"].
+- Set the "state" to "CONFIRMATION_REQUIRED" if all of ["patient_name", "phone", "doctor", "date", "time"] are present, but the user hasn't explicitly confirmed yet.
 - Set the "state" to "CONFIRMED" if all slots are present and the user explicitly agrees/confirms (e.g., "yes", "confirm", "that sounds good", "perfect").
-- List any missing fields from ["doctor", "date", "time", "patient_name"] in the "missing_fields" array.
+- List any missing fields from ["patient_name", "phone", "doctor", "date", "time"] in the "missing_fields" array. The order in this array MUST reflect the exact missing fields in this priority order: patient_name, phone, doctor, date, time.
 
 You must respond with a raw JSON object containing the updated state:
 {
@@ -108,7 +109,7 @@ You must respond with a raw JSON object containing the updated state:
 }`;
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userUtterance },
@@ -123,6 +124,9 @@ You must respond with a raw JSON object containing the updated state:
     }
 
     const parsed = JSON.parse(content) as BookingState;
+    
+    // Log the extracted slots before updating the appointment state
+    Logger.info(`StateManager extracted raw slots from Groq turn -> Patient Name: "${parsed.patient_name}", Phone: "${parsed.phone}", Doctor: "${parsed.doctor}", Date: "${parsed.date}", Time: "${parsed.time}"`, 'STATE_MANAGER');
     
     // Update the in-memory store
     stateStore[callSid] = {

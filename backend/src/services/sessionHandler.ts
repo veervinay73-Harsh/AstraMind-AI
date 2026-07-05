@@ -65,13 +65,22 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
   });
 
   let deepgramReady = false;
+  const audioQueue: Buffer[] = [];
 
   deepgramWs.on('open', () => {
     deepgramReady = true;
     Logger.info('Deepgram STT connected for browser session.', 'DEEPGRAM');
 
-    send({ type: 'status', status: 'listening' });
+    // Flush any queued audio chunks
+    while (audioQueue.length > 0) {
+      const chunk = audioQueue.shift();
+      if (chunk && deepgramWs.readyState === WebSocket.OPEN) {
+        deepgramWs.send(chunk);
+        audioChunkCount++;
+      }
+    }
 
+    // Broadcast session start to dashboard
     broadcastToDashboard({
       event: 'call_started',
       callSid: sessionId,
@@ -79,7 +88,45 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
       hospitalPhone: '',
       timestamp: new Date().toISOString(),
     });
-    broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+
+    // Send and synthesize auto-greeting message
+    const greetingText = "Hello! Welcome to AstraMind Integrated Medical Center. I'm your AI receptionist. How may I assist you today?";
+    
+    // Display greeting in the Dialogue Transcription Stream
+    send({ type: 'ai_response', text: greetingText });
+    broadcastToDashboard({
+      event: 'ai_response_generated',
+      callSid: sessionId,
+      response: greetingText,
+      speaker: 'ai',
+      timestamp: new Date().toISOString(),
+    });
+
+    // Enter speaking state to mute microphone
+    send({ type: 'status', status: 'speaking' });
+    broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'speaking' });
+
+    // Synthesize greeting
+    synthesizeSpeech(greetingText)
+      .then((audioBuffer) => {
+        if (audioBuffer && ws.readyState === WebSocket.OPEN) {
+          Logger.info(`Sending ${audioBuffer.length} bytes of greeting MP3 audio over WebSocket to client`, 'SESSION');
+          ws.send(audioBuffer); // Binary audio frame (MP3)
+          send({ type: 'audio_end' });
+        } else {
+          Logger.warn(`ElevenLabs synthesis failed for greeting. Emitting 'tts_failed' event for client fallback.`, 'SESSION');
+          send({ type: 'tts_failed', text: greetingText });
+        }
+        
+        // Switch back to listening mode after greeting completes (frontend unmutes)
+        send({ type: 'status', status: 'listening' });
+        broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+      })
+      .catch((err) => {
+        Logger.error('Failed to play auto-greeting', err, 'SESSION');
+        send({ type: 'status', status: 'listening' });
+        broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+      });
   });
 
   deepgramWs.on('message', (rawMsg: Buffer | string) => {
@@ -130,8 +177,11 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
             const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult);
             Logger.info(`AI [${sessionId}]: "${voiceResponse}"`, 'SESSION');
 
+            const isBookingSuccess = orchestratorResult.selected_tool === 'BOOK_APPOINTMENT' &&
+              (orchestratorResult.result && (orchestratorResult.result.status === 'BOOKED' || orchestratorResult.result.status === 'SUCCESS' || orchestratorResult.result.appointmentId));
+
             // Send text response
-            send({ type: 'ai_response', text: voiceResponse });
+            send({ type: 'ai_response', text: voiceResponse, disconnectAfterPlay: isBookingSuccess });
             broadcastToDashboard({
               event: 'ai_response_generated',
               callSid: sessionId,
@@ -146,12 +196,19 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
             // Synthesize and stream audio
             const audioBuffer = await synthesizeSpeech(voiceResponse);
             if (audioBuffer && ws.readyState === WebSocket.OPEN) {
+              Logger.info(`Sending ${audioBuffer.length} bytes of synthesized MP3 audio over WebSocket to client`, 'SESSION');
               ws.send(audioBuffer); // Binary audio frame (MP3)
-              send({ type: 'audio_end' }); // Signal playback complete
+              send({ type: 'audio_end', disconnectAfterPlay: isBookingSuccess }); // Signal playback complete
+            } else {
+              Logger.warn(`ElevenLabs synthesis failed or returned empty. Emitting 'tts_failed' fallback event for client.`, 'SESSION');
+              send({ type: 'tts_failed', text: voiceResponse, disconnectAfterPlay: isBookingSuccess });
             }
 
-            send({ type: 'status', status: 'listening' });
-            broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+            // Only transition to listening if not disconnecting
+            if (!isBookingSuccess) {
+              send({ type: 'status', status: 'listening' });
+              broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'listening' });
+            }
           })
           .catch((err) => {
             Logger.error('AI pipeline error in session handler', err, 'SESSION');
@@ -171,20 +228,22 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
   deepgramWs.on('close', () => Logger.info('Deepgram STT connection closed.', 'DEEPGRAM'));
 
   // ── Incoming Browser Messages ──────────────────────────────────────────────
-  ws.on('message', (data: Buffer | string) => {
-    // Control messages (JSON strings)
-    if (typeof data === 'string' || (data instanceof Buffer && data[0] === 0x7b /* '{' */)) {
+  ws.on('message', (data: Buffer, isBinary: boolean) => {
+    // Control messages (JSON strings sent as text frames)
+    if (!isBinary) {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'stop') {
           Logger.info(`Session stop requested by client: ${sessionId}`, 'SESSION');
         }
-      } catch { /* ignore parse errors for binary that happens to start with { */ }
+      } catch { /* ignore parse errors */ }
       return;
     }
 
     // Binary audio data (webm/opus from MediaRecorder)
-    if (deepgramReady && deepgramWs.readyState === WebSocket.OPEN) {
+    if (!deepgramReady) {
+      audioQueue.push(data);
+    } else if (deepgramWs.readyState === WebSocket.OPEN) {
       deepgramWs.send(data);
       audioChunkCount++;
     }

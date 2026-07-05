@@ -40,7 +40,7 @@ You must respond with a raw JSON object containing:
 Ensure confidence is a number representing your certainty. Do not include any reasoning, markdown formatting, or HTML tags in your response. Just the raw JSON.`;
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text },

@@ -69,7 +69,7 @@ Rules for matching:
 Do not include any explanation or markdown formatting in your response. Just return the raw JSON object.`;
 
     const response = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userQuestion },

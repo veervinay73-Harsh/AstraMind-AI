@@ -43,27 +43,17 @@ export function useVoiceSession() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const expectingAudioRef = useRef<boolean>(false);
+  const isSpeakingRef = useRef<boolean>(false);
+  const disconnectOnEndRef = useRef<boolean>(false);
 
-  // ── Audio playback ───────────────────────────────────────────────────────────
+  // ── Microphone control helpers ──────────────────────────────────────────────
 
-  const playAudioBuffer = useCallback(async (data: ArrayBuffer) => {
-    try {
-      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-        audioCtxRef.current = new AudioContext();
-        gainRef.current = audioCtxRef.current.createGain();
-        gainRef.current.connect(audioCtxRef.current.destination);
-      }
-      if (audioCtxRef.current.state === 'suspended') {
-        await audioCtxRef.current.resume();
-      }
-
-      const decoded = await audioCtxRef.current.decodeAudioData(data.slice(0));
-      const src = audioCtxRef.current.createBufferSource();
-      src.buffer = decoded;
-      src.connect(gainRef.current!);
-      src.start();
-    } catch (err) {
-      console.warn('[useVoiceSession] Audio playback error:', err);
+  const setMicrophoneMute = useCallback((muted: boolean) => {
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+      });
+      console.log(`[useVoiceSession] Microphone track ${muted ? 'MUTED' : 'UNMUTED'}.`);
     }
   }, []);
 
@@ -94,6 +84,7 @@ export function useVoiceSession() {
     }
 
     expectingAudioRef.current = false;
+    disconnectOnEndRef.current = false;
   }, []);
 
   // ── Stop session ─────────────────────────────────────────────────────────────
@@ -103,6 +94,61 @@ export function useVoiceSession() {
     setStatus('disconnected');
     setSessionId(null);
   }, [cleanup]);
+
+  // ── Audio playback ───────────────────────────────────────────────────────────
+
+  const playAudioBuffer = useCallback(async (data: ArrayBuffer) => {
+    try {
+      console.log('[useVoiceSession] Starting audio context preparation...');
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new AudioContext();
+        gainRef.current = audioCtxRef.current.createGain();
+        gainRef.current.connect(audioCtxRef.current.destination);
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        console.log('[useVoiceSession] Resuming suspended audio context...');
+        await audioCtxRef.current.resume();
+      }
+
+      console.log(`[useVoiceSession] Decoding ${data.byteLength} bytes of audio data...`);
+      const decoded = await audioCtxRef.current.decodeAudioData(data.slice(0));
+      console.log('[useVoiceSession] Audio decoded successfully. Muting microphone and starting playback...');
+      
+      setMicrophoneMute(true);
+      isSpeakingRef.current = true;
+      setStatus('speaking');
+
+      const src = audioCtxRef.current.createBufferSource();
+      src.buffer = decoded;
+      src.connect(gainRef.current!);
+      src.start();
+      console.log('[useVoiceSession] Audio playback started.');
+
+      src.onended = () => {
+        console.log('[useVoiceSession] Audio playback finished.');
+        if (disconnectOnEndRef.current) {
+          console.log('[useVoiceSession] Closing voice session after greeting/goodbye.');
+          stopSession();
+        } else {
+          console.log('[useVoiceSession] Unmuting microphone.');
+          isSpeakingRef.current = false;
+          setMicrophoneMute(false);
+          setStatus('listening');
+        }
+      };
+    } catch (err) {
+      console.warn('[useVoiceSession] Audio playback error:', err);
+      if (disconnectOnEndRef.current) {
+        stopSession();
+      } else {
+        isSpeakingRef.current = false;
+        setMicrophoneMute(false);
+        setStatus('listening');
+      }
+    }
+  }, [setMicrophoneMute, stopSession]);
+
+
 
   // ── Start session ────────────────────────────────────────────────────────────
 
@@ -164,6 +210,7 @@ export function useVoiceSession() {
       ws.onmessage = (event) => {
         // Binary message = audio data from ElevenLabs
         if (event.data instanceof ArrayBuffer) {
+          console.log(`[useVoiceSession] Received binary audio frame of size: ${event.data.byteLength} bytes.`);
           playAudioBuffer(event.data);
           return;
         }
@@ -173,7 +220,13 @@ export function useVoiceSession() {
 
           switch (msg.type) {
             case 'status':
-              setStatus(msg.status as VoiceStatus);
+              const newStatus = msg.status as VoiceStatus;
+              setStatus(newStatus);
+              if (newStatus === 'thinking' || newStatus === 'speaking') {
+                setMicrophoneMute(true);
+              } else if (newStatus === 'listening' && !isSpeakingRef.current) {
+                setMicrophoneMute(false);
+              }
               break;
 
             case 'transcript':
@@ -204,6 +257,9 @@ export function useVoiceSession() {
               break;
 
             case 'ai_response':
+              if (msg.disconnectAfterPlay) {
+                disconnectOnEndRef.current = true;
+              }
               setTranscripts((prev) => [
                 ...prev,
                 {
@@ -214,6 +270,60 @@ export function useVoiceSession() {
                   timestamp: new Date().toISOString(),
                 },
               ]);
+              break;
+
+            case 'tts_failed':
+              console.warn('[useVoiceSession] ElevenLabs TTS failed on backend. Falling back to browser-native SpeechSynthesis.');
+              if (msg.disconnectAfterPlay) {
+                disconnectOnEndRef.current = true;
+              }
+              if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                // Cancel any ongoing speech first
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(msg.text);
+                const voices = window.speechSynthesis.getVoices();
+                // Select a natural sounding English voice if available
+                const englishVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                if (englishVoice) {
+                  utterance.voice = englishVoice;
+                }
+
+                utterance.onstart = () => {
+                  console.log('[useVoiceSession] Browser-native SpeechSynthesis started. Muting microphone.');
+                  setMicrophoneMute(true);
+                  isSpeakingRef.current = true;
+                  setStatus('speaking');
+                };
+
+                utterance.onend = () => {
+                  console.log('[useVoiceSession] Browser-native SpeechSynthesis finished.');
+                  if (disconnectOnEndRef.current) {
+                    console.log('[useVoiceSession] Closing voice session after SpeechSynthesis goodbye.');
+                    stopSession();
+                  } else {
+                    console.log('[useVoiceSession] Unmuting microphone.');
+                    isSpeakingRef.current = false;
+                    setMicrophoneMute(false);
+                    setStatus('listening');
+                  }
+                };
+
+                utterance.onerror = (e) => {
+                  console.warn('[useVoiceSession] SpeechSynthesis error:', e);
+                  if (disconnectOnEndRef.current) {
+                    stopSession();
+                  } else {
+                    isSpeakingRef.current = false;
+                    setMicrophoneMute(false);
+                    setStatus('listening');
+                  }
+                };
+
+                window.speechSynthesis.speak(utterance);
+                console.log('[useVoiceSession] Browser-native SpeechSynthesis playback initiated.');
+              } else {
+                console.error('[useVoiceSession] SpeechSynthesis API not supported in this browser.');
+              }
               break;
 
             case 'audio_end':
