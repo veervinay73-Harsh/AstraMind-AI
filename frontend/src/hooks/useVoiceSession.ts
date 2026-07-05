@@ -24,8 +24,8 @@ export interface TranscriptEntry {
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
 const getWsBase = (): string => {
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-  return apiBase.replace(/^https?/, 'ws').replace(/\/api$/, '');
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : 'http://localhost:5000/api');
+  return apiBase.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://').replace(/\/api\/?$/, '');
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
