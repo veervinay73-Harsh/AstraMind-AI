@@ -20,6 +20,7 @@ export interface BookingState {
   insurance_details?: string | null;
   missing_fields: string[];
   invalid_doctor?: string | null;
+  doctor_unavailable?: boolean;
   recommended_doctors?: { name: string; specialization: string }[] | null;
 }
 
@@ -46,6 +47,7 @@ export const getSessionState = (callSid: string): BookingState => {
       insurance_details: null,
       missing_fields: [],
       invalid_doctor: null,
+      doctor_unavailable: false,
       recommended_doctors: null,
     };
   }
@@ -167,6 +169,13 @@ You must respond with a raw JSON object containing the updated state:
     const parsedPhone = sanitizeSlot(parsed.phone);
     const parsedDate = sanitizeSlot(parsed.date);
     const parsedTime = sanitizeSlot(parsed.time);
+    const parsedAge = parsed.age;
+    const parsedGender = sanitizeSlot(parsed.gender);
+    const parsedIsNewPatient = parsed.is_new_patient;
+    const parsedDepartment = sanitizeSlot(parsed.department);
+    const parsedReasonForVisit = sanitizeSlot(parsed.reason_for_visit);
+    const parsedSymptoms = sanitizeSlot(parsed.symptoms);
+    const parsedInsurance = sanitizeSlot(parsed.insurance_details);
 
     let doctorVal = parsedDoctor;
     let invalidDoc: string | null = null;
@@ -230,12 +239,23 @@ You must respond with a raw JSON object containing the updated state:
     const finalPatientName = parsedPatientName || currentState.patient_name || null;
     const finalDate = parsedDate || currentState.date || null;
     const finalTime = parsedTime || currentState.time || null;
+    const finalAge = parsedAge ?? currentState.age ?? null;
+    const finalGender = parsedGender || currentState.gender || null;
+    const finalIsNewPatient = parsedIsNewPatient ?? currentState.is_new_patient ?? null;
+    const finalDepartment = parsedDepartment || currentState.department || null;
+    const finalReasonForVisit = parsedReasonForVisit || currentState.reason_for_visit || null;
+    const finalSymptoms = parsedSymptoms || currentState.symptoms || null;
+    const finalInsurance = parsedInsurance || currentState.insurance_details || null;
 
-    const order = ['patient_name', 'phone', 'doctor', 'date', 'time'];
+    const order = ['patient_name', 'phone', 'age', 'gender', 'is_new_patient', 'department', 'reason_for_visit', 'date', 'time'];
     const missingFields = order.filter(f => {
       if (f === 'patient_name') return !finalPatientName;
       if (f === 'phone') return !finalPhone;
-      if (f === 'doctor') return !doctorVal;
+      if (f === 'age') return finalAge === null;
+      if (f === 'gender') return !finalGender;
+      if (f === 'is_new_patient') return finalIsNewPatient === null;
+      if (f === 'department') return !finalDepartment;
+      if (f === 'reason_for_visit') return !finalReasonForVisit;
       if (f === 'date') return !finalDate;
       if (f === 'time') return !finalTime;
       return false;
@@ -247,23 +267,31 @@ You must respond with a raw JSON object containing the updated state:
     }
 
     // Update the in-memory store
-    stateStore[callSid] = {
+    Object.assign(currentState, {
       intent: parsed.intent || 'UNKNOWN',
-      state: finalState as any,
+      state: finalState,
       patient_name: finalPatientName,
       doctor: doctorVal,
-      doctorId: currentState.doctorId,
       date: finalDate,
       time: finalTime,
       phone: finalPhone,
+      age: finalAge,
+      gender: finalGender,
+      is_new_patient: finalIsNewPatient,
+      department: finalDepartment,
+      reason_for_visit: finalReasonForVisit,
+      symptoms: finalSymptoms,
+      insurance_details: finalInsurance,
       missing_fields: missingFields,
       invalid_doctor: invalidDoc,
+      // If we are setting doctor/time from the user's explicit new statement, we reset unavailable flag,
+      // assuming it will be checked again by the orchestrator.
+      doctor_unavailable: parsedDate !== null || parsedTime !== null || parsedDoctor !== null ? false : currentState.doctor_unavailable,
       recommended_doctors: recDocs,
-    };
+    });
 
-    Logger.info(`[STATE_MANAGER_TRACE] Session ID: ${callSid} | Doctor stored in BookingState: "${doctorVal}" | DoctorId: "${currentState.doctorId}" | InvalidDoctor: "${invalidDoc}"`, 'STATE_MANAGER');
-
-    return stateStore[callSid];
+    Logger.info(`Updated session state: ${JSON.stringify(currentState)}`, 'STATE_MANAGER');
+    return currentState;
   } catch (error) {
     Logger.error('Failed to process conversation state turn via Groq', error, 'STATE_MANAGER');
     return getSessionState(callSid);

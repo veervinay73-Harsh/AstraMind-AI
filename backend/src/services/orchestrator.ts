@@ -1,5 +1,5 @@
 import { processConversationTurn } from './stateManager';
-import { bookAppointment } from './booking';
+import { bookAppointment, checkDoctorAvailability } from './booking';
 import { cancelAppointment } from './cancellation';
 import { rescheduleAppointment } from './rescheduling';
 import { queryKnowledgeBase } from './kbEngine';
@@ -42,6 +42,24 @@ export const orchestrateTurn = async (
           selected_tool: 'BOOK_APPOINTMENT',
           reason: 'Customer confirmed all appointment details.',
           result: bookingResult,
+        };
+      } else if (state.state === 'CONFIRMATION_REQUIRED') {
+        // Intercept confirmation to check availability
+        if (state.doctorId && state.date && state.time) {
+          const isAvailable = await checkDoctorAvailability(state.doctorId, state.date, state.time);
+          if (!isAvailable) {
+            Logger.info(`Doctor ${state.doctor} is unavailable at ${state.date} ${state.time}. Rejecting confirmation.`, 'ORCHESTRATOR');
+            state.doctor_unavailable = true;
+            state.state = 'COLLECTING_INFORMATION';
+            // Important: Do not save back to stateManager immediately, but we can pass it so ResponseGenerator uses it.
+            // Wait, stateManager manages in-memory state. Since `processConversationTurn` already ran, we should probably update the in-memory state.
+            // For now, the response generator will see `doctor_unavailable` and ask the user to pick another time.
+          }
+        }
+        return {
+          selected_tool: 'NONE',
+          reason: 'Awaiting final confirmation.',
+          result: state,
         };
       } else {
         // Still collecting slot details

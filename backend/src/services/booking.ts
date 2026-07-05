@@ -78,6 +78,13 @@ export const bookAppointment = async (
     if (parts.length >= 2) {
       minutes = parseInt(parts[1], 10);
     }
+    
+    const dateParts = dateStr.split('-');
+    const year = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1;
+    const day = parseInt(dateParts[2], 10);
+    const appointmentDate = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+
 
     // 4. Find or Create Patient profile
     const patientName = state.patient_name!;
@@ -112,13 +119,7 @@ export const bookAppointment = async (
       });
     }
 
-    // 5. Create appointment in DB (Always assume available!)
-    const dateParts = dateStr.split('-');
-    const year = parseInt(dateParts[0], 10);
-    const month = parseInt(dateParts[1], 10) - 1;
-    const day = parseInt(dateParts[2], 10);
-    const appointmentDate = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
-
+    // 5. Create appointment in DB
     const newAppointment = await AppointmentRepository.create({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -147,5 +148,48 @@ export const bookAppointment = async (
       status: 'FAILED_INTERNAL_ERROR',
       message: 'Internal server error during appointment booking.',
     };
+  }
+};
+
+export const checkDoctorAvailability = async (doctorId: string, dateStr: string, timeStr: string): Promise<boolean> => {
+  try {
+    let hours = 0;
+    let minutes = 0;
+    const timeLower = timeStr.toLowerCase();
+    const isPm = timeLower.includes('pm');
+    const isAm = timeLower.includes('am');
+    const timeClean = timeLower.replace(/am|pm/g, '').trim();
+    const parts = timeClean.split(':');
+    
+    if (parts.length >= 1) {
+      hours = parseInt(parts[0], 10);
+      if (isPm && hours < 12) hours += 12;
+      if (isAm && hours === 12) hours = 0;
+    }
+    if (parts.length >= 2) {
+      minutes = parseInt(parts[1], 10);
+    }
+    
+    const dateParts = dateStr.split('-');
+    const year = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1;
+    const day = parseInt(dateParts[2], 10);
+    const appointmentDate = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+
+    // Check if there is already an appointment for this doctor at this exact time
+    const existingAppointment = await prisma.appointment.findFirst({
+      where: {
+        doctorId,
+        dateTime: appointmentDate,
+        status: {
+          not: 'CANCELLED'
+        }
+      }
+    });
+
+    return !existingAppointment;
+  } catch (error) {
+    Logger.error('Failed to check doctor availability', error, 'BOOKING_ENGINE');
+    return true; // Default to available on error to avoid blocking
   }
 };
