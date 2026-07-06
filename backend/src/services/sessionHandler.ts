@@ -186,6 +186,8 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
           send({ type: 'status', status: 'thinking' });
           broadcastToDashboard({ event: 'ai_status_change', callSid: sessionId, status: 'thinking' });
 
+          const bookingStateBefore = JSON.parse(JSON.stringify(getSessionState(sessionId)));
+
           orchestrateTurn(sessionId, transcript, hospitalId, participantName)
             .then(async (orchestratorResult) => {
               Logger.info(`Orchestrator: ${orchestratorResult.selected_tool} — ${orchestratorResult.reason}`, 'SESSION');
@@ -202,7 +204,21 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
               });
 
               const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult, sessionId);
-              Logger.info(`AI [${sessionId}]: "${voiceResponse}"`, 'SESSION');
+              
+              const isIntentUnknown = sessionState.latest_intent === 'UNKNOWN';
+              Logger.info(`
+============== CONVERSATION NLU PIPELINE AUDIT ==============
+Raw transcript: "${transcript}"
+Detected intent: "${sessionState.latest_intent || 'UNKNOWN'}"
+Extracted entities: ${JSON.stringify(sessionState.latest_entities || {})}
+BookingState before update: ${JSON.stringify(bookingStateBefore, null, 2)}
+BookingState after update: ${JSON.stringify(sessionState, null, 2)}
+Current conversation state: "${sessionState.lifecycleState}"
+Next state: "${sessionState.state === 'CONFIRMED' ? 'EXECUTE_TOOL' : sessionState.state === 'CONFIRMATION_REQUIRED' ? 'ASK_CONFIRMATION' : 'ASK_MISSING_SLOTS'}"
+Assistant response: "${voiceResponse}"
+${isIntentUnknown ? `Intent Detection Warning: Utterance "${transcript}" could not be classified into a known business intent. Reason: Groq classified it as UNKNOWN.` : ''}
+=============================================================
+              `, 'SESSION');
 
               const isBookingSuccess = 
                 (orchestratorResult.selected_tool === 'BOOK_APPOINTMENT' && orchestratorResult.result && (orchestratorResult.result.status === 'BOOKED' || orchestratorResult.result.status === 'SUCCESS' || orchestratorResult.result.appointmentId)) ||

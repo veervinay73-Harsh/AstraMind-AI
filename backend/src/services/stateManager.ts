@@ -26,6 +26,8 @@ export interface BookingState {
   upcomingAppointments?: any[] | null;
   cancelledAppointments?: any[] | null;
   pastAppointments?: any[] | null;
+  latest_intent?: string;
+  latest_entities?: any;
 }
 
 // In-memory conversation state store keyed by CallSid
@@ -267,6 +269,16 @@ Output ONLY valid JSON:
     } else if (currentState.patientExists && parsedPatientName) {
       parsedPatientName = null;
     }
+
+    currentState.latest_intent = parsed.intent || 'UNKNOWN';
+    currentState.latest_entities = {
+      patientName: parsedPatientName,
+      phone: parsedPhone,
+      doctor: parsedDoctor,
+      department: parsedDepartment,
+      date: parsedDate,
+      time: parsedTime
+    };
 
     // Apply operation context if intent changed
     const incomingIntent = parsed.intent;
