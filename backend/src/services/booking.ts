@@ -1,5 +1,6 @@
 import { AppointmentRepository } from '../repositories/appointment.repository';
 import { PatientRepository } from '../repositories/patient.repository';
+import { CallLogRepository } from '../repositories/callLog.repository';
 import { BookingState } from './stateManager';
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
@@ -116,7 +117,15 @@ export const bookAppointment = async (
       });
     }
 
-    // 5. Create appointment in DB
+    // 5. Create Call Log for successful booking
+    const callLog = await CallLogRepository.create({
+      twilioCallSid: _callSid,
+      hospitalId,
+      patientId: patient.id,
+      callStatus: 'COMPLETED - BOOKED',
+    });
+
+    // 6. Create appointment in DB
     const newAppointment = await AppointmentRepository.create({
       patientId: patient.id,
       doctorId: doctor.id,
@@ -125,6 +134,8 @@ export const bookAppointment = async (
       hospitalId,
       department: state.department || doctor.specialization,
       notes: 'Booked via AstraMind AI voice assistant.',
+      status: 'CONFIRMED',
+      callLogId: callLog.id,
     });
 
     Logger.info(`[STATE_TRANSITION] booking completed! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');

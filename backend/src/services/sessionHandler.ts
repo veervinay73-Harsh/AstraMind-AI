@@ -7,6 +7,7 @@ import { getSessionState, clearSessionState } from './stateManager';
 import prisma from '../config/prisma';
 import { broadcastToDashboard } from './eventHub';
 import { synthesizeSpeech } from './elevenLabsService';
+import { CallLogRepository } from '../repositories/callLog.repository';
 
 export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
   const urlObj = new URL(req?.url || '', `http://${req?.headers.host || 'localhost'}`);
@@ -294,6 +295,21 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
       callSid: sessionId,
       timestamp: new Date().toISOString(),
     });
+
+    const state = getSessionState(sessionId);
+    
+    // Create CallLog if it wasn't a successful booking
+    if (state && hospitalId) {
+       CallLogRepository.findByCallSid(sessionId).then(existingLog => {
+         if (!existingLog) {
+           CallLogRepository.create({
+             twilioCallSid: sessionId,
+             hospitalId,
+             callStatus: state.intent === 'CANCEL_APPOINTMENT' ? 'COMPLETED - CANCELLED' : 'DISCONNECTED - INCOMPLETE',
+           }).catch(err => Logger.error('Failed to save disconnected call log', err, 'SESSION'));
+         }
+       }).catch(err => Logger.error('Failed to look up call log', err, 'SESSION'));
+    }
 
     clearSessionState(sessionId);
 

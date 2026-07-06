@@ -68,7 +68,8 @@ export function LiveCallsProvider({ children }: { children: React.ReactNode }) {
 
     setIsConnecting(true);
     // Connect to backend dashboard stream path
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL ? (process.env.NEXT_PUBLIC_WS_URL.endsWith('/api/dashboard') ? process.env.NEXT_PUBLIC_WS_URL : process.env.NEXT_PUBLIC_WS_URL.replace(/\/$/, '') + '/api/dashboard') : "ws://localhost:5000/api/dashboard";
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL ? (process.env.NEXT_PUBLIC_API_URL.endsWith('/api') ? process.env.NEXT_PUBLIC_API_URL : process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') + '/api') : 'http://localhost:5000/api');
+    const wsUrl = apiBase.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://') + '/dashboard';
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

@@ -53,6 +53,7 @@ export class AppointmentRepository {
     symptoms?: string;
     hospitalId: string;
     callLogId?: string;
+    status?: AppointmentStatus;
   }): Promise<Appointment> {
     return prisma.appointment.create({
       data,
