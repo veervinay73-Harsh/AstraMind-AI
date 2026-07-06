@@ -92,7 +92,21 @@ app.use('/api/kb', kbRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/settings', settingsRouter);
 
-// 9. Post-routing fallbacks and error captures
+// 9. Root health route (supports both GET and HEAD for Render health checks)
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    service: 'AstraMind AI Backend',
+    version: '1.0.0',
+    message: 'Backend is running successfully.',
+  });
+});
+
+app.head('/', (_req, res) => {
+  res.status(200).end();
+});
+
+// 10. Post-routing fallbacks and error captures
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
 
