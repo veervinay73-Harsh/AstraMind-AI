@@ -1,4 +1,3 @@
-import { AppointmentRepository } from '../repositories/appointment.repository';
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
 
@@ -14,82 +13,35 @@ export interface RescheduleResult {
 }
 
 export const rescheduleAppointment = async (
-  patientPhone: string,
-  hospitalId: string,
+  callSid: string,
+  appointmentId: string,
   newDateStr: string | null | undefined,
   newTimeStr: string | null | undefined,
-  doctorId?: string | null
+  hospitalId: string
 ): Promise<RescheduleResult> => {
   try {
-    if (doctorId && process.env.NODE_ENV === 'development') {
-      // Assertion for debug mode (requirement #7)
-      Logger.debug(`[ASSERTION] rescheduling.ts received doctorId: ${doctorId}. No name lookup will be performed.`, 'RESCHEDULING_ENGINE');
-    }
-
     // 1. Verify required fields are present
-    if (!patientPhone || !hospitalId || !newDateStr || !newTimeStr) {
+    if (!appointmentId || !newDateStr || !newTimeStr) {
       return {
         status: 'FAILED_MISSING_FIELDS',
-        message: 'Missing required fields for rescheduling: patientPhone, hospitalId, newDateStr, and newTimeStr are required.',
+        message: 'Missing required fields for rescheduling.',
       };
     }
 
-    // 2. Identify the patient
-    const patient = await prisma.patient.findUnique({
-      where: {
-        hospitalId_phone: {
-          hospitalId,
-          phone: patientPhone,
-        },
-      },
+    // 2. Locate the existing appointment
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { doctor: true },
     });
 
-    if (!patient) {
-      return {
-        status: 'FAILED_INVALID_PATIENT',
-        message: `Patient with phone ${patientPhone} does not exist in the system.`,
-      };
-    }
-
-    // 3. Locate the existing appointment
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        patientId: patient.id,
-        hospitalId,
-        status: {
-          not: 'CANCELLED',
-        },
-      },
-      include: {
-        doctor: true,
-      },
-      orderBy: {
-        dateTime: 'asc',
-      },
-    });
-
-    if (appointments.length === 0) {
+    if (!appointment) {
       return {
         status: 'FAILED_NOT_FOUND',
-        message: 'No active appointments found for this patient to reschedule.',
+        message: 'No appointment found with the provided ID.',
       };
     }
 
-    let targetAppt = appointments[0];
-    if (doctorId) {
-      const filtered = appointments.filter((appt) => appt.doctorId === doctorId);
-      if (filtered.length === 0) {
-        return {
-          status: 'FAILED_NOT_FOUND',
-          message: `No active appointment found for doctor ID: "${doctorId}".`,
-        };
-      }
-      targetAppt = filtered[0];
-    }
-
-    const doctorName = targetAppt.doctor.name;
-
-    // 5. Parse requested new time slot
+    // 3. Parse requested new time slot
     let hours = 0;
     let minutes = 0;
     const timeLower = newTimeStr.toLowerCase();
@@ -111,33 +63,50 @@ export const rescheduleAppointment = async (
     const formattedMinutes = String(minutes).padStart(2, '0');
     const requestedSlot = `${newDateStr}T${formattedHours}:${formattedMinutes}:00`;
 
-    // Assume all doctors are available for simplicity as per requirements
     const dateParts = newDateStr.split('-');
     const year = parseInt(dateParts[0], 10);
     const month = parseInt(dateParts[1], 10) - 1;
     const day = parseInt(dateParts[2], 10);
     const newAppointmentDate = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
-    await AppointmentRepository.reschedule(
-      targetAppt.id,
-      newAppointmentDate,
-      `Rescheduled via AstraMind AI voice assistant from ${targetAppt.dateTime.toISOString().substring(0, 10)}.`
-    );
+    // Update appointment
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        previousDateTime: appointment.dateTime,
+        dateTime: newAppointmentDate,
+        status: 'RESCHEDULED',
+        notes: `Rescheduled via AstraMind AI voice assistant from ${appointment.dateTime.toISOString().substring(0, 10)}.`,
+      },
+    });
 
-    Logger.info(`Appointment rescheduled successfully! ID: ${targetAppt.id} - Doctor: ${doctorName} to ${requestedSlot}`, 'RESCHEDULING_ENGINE');
+    Logger.info(`Appointment rescheduled successfully! ID: ${appointmentId} - Doctor: ${appointment.doctor.name} to ${requestedSlot}`, 'RESCHEDULING_ENGINE');
+
+    // 4. Record Call Log and Action Taken
+    await prisma.callLog.upsert({
+      where: { twilioCallSid: callSid },
+      update: { actionTaken: 'Appointment Rescheduled' },
+      create: {
+        twilioCallSid: callSid,
+        hospitalId,
+        callStatus: 'in-progress',
+        actionTaken: 'Appointment Rescheduled',
+        patientId: appointment.patientId,
+      },
+    });
 
     // Format old date and time for response
-    const oldDatePart = targetAppt.dateTime.toISOString().substring(0, 10);
-    const oldHrs = targetAppt.dateTime.getUTCHours();
-    const oldMins = targetAppt.dateTime.getUTCMinutes();
+    const oldDatePart = appointment.dateTime.toISOString().substring(0, 10);
+    const oldHrs = appointment.dateTime.getUTCHours();
+    const oldMins = appointment.dateTime.getUTCMinutes();
     const oldAmpm = oldHrs >= 12 ? 'PM' : 'AM';
     const oldHrs12 = oldHrs % 12 || 12;
     const oldTimePart = `${oldHrs12}:${String(oldMins).padStart(2, '0')} ${oldAmpm}`;
 
     return {
       status: 'RESCHEDULED',
-      appointmentId: targetAppt.id,
-      doctor: doctorName,
+      appointmentId: appointment.id,
+      doctor: appointment.doctor.name,
       old_date: oldDatePart,
       old_time: oldTimePart,
       new_date: newDateStr,

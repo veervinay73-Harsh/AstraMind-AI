@@ -117,13 +117,27 @@ export const bookAppointment = async (
       });
     }
 
-    // 5. Create Call Log for successful booking
-    const callLog = await CallLogRepository.create({
-      twilioCallSid: _callSid,
-      hospitalId,
-      patientId: patient.id,
-      callStatus: 'COMPLETED - BOOKED',
-    });
+    // 5. Create or Update Call Log for successful booking
+    const existingLog = await CallLogRepository.findByCallSid(_callSid);
+    let callLog;
+    if (existingLog) {
+      callLog = await prisma.callLog.update({
+        where: { id: existingLog.id },
+        data: {
+          patientId: patient.id,
+          callStatus: 'COMPLETED - BOOKED',
+          actionTaken: 'Appointment Booked',
+        },
+      });
+    } else {
+      callLog = await CallLogRepository.create({
+        twilioCallSid: _callSid,
+        hospitalId,
+        patientId: patient.id,
+        callStatus: 'COMPLETED - BOOKED',
+        actionTaken: 'Appointment Booked',
+      });
+    }
 
     // 6. Create appointment in DB
     const newAppointment = await AppointmentRepository.create({

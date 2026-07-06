@@ -298,17 +298,27 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
 
     const state = getSessionState(sessionId);
     
-    // Create CallLog if it wasn't a successful booking
+    // Create or update CallLog on close
     if (state && hospitalId) {
-       CallLogRepository.findByCallSid(sessionId).then(existingLog => {
-         if (!existingLog) {
-           CallLogRepository.create({
-             twilioCallSid: sessionId,
-             hospitalId,
-             callStatus: state.intent === 'CANCEL_APPOINTMENT' ? 'COMPLETED - CANCELLED' : 'DISCONNECTED - INCOMPLETE',
-           }).catch(err => Logger.error('Failed to save disconnected call log', err, 'SESSION'));
-         }
-       }).catch(err => Logger.error('Failed to look up call log', err, 'SESSION'));
+      CallLogRepository.findByCallSid(sessionId).then(existingLog => {
+        const finalStatus = state.state === 'CONFIRMED' ? 'completed' : 'DISCONNECTED - INCOMPLETE';
+        if (!existingLog) {
+          CallLogRepository.create({
+            twilioCallSid: sessionId,
+            hospitalId,
+            callStatus: finalStatus,
+            patientId: state.patientId || undefined,
+          }).catch(err => Logger.error('Failed to save disconnected call log', err, 'SESSION'));
+        } else {
+          prisma.callLog.update({
+            where: { id: existingLog.id },
+            data: {
+              callStatus: finalStatus,
+              patientId: state.patientId || undefined,
+            }
+          }).catch(err => Logger.error('Failed to update call log on close', err, 'SESSION'));
+        }
+      }).catch(err => Logger.error('Failed to look up call log', err, 'SESSION'));
     }
 
     clearSessionState(sessionId);

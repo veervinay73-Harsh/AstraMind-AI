@@ -1,6 +1,4 @@
-import { AppointmentRepository } from '../repositories/appointment.repository';
 import prisma from '../config/prisma';
-import { AppointmentStatus } from '../generated/prisma';
 import { Logger } from '../utils/logger';
 
 export interface CancellationResult {
@@ -13,110 +11,70 @@ export interface CancellationResult {
 }
 
 export const cancelAppointment = async (
-  patientPhone: string,
-  hospitalId: string,
-  doctorId?: string | null,
-  targetDateStr?: string | null
+  callSid: string,
+  appointmentId: string,
+  hospitalId: string
 ): Promise<CancellationResult> => {
   try {
-    if (doctorId && process.env.NODE_ENV === 'development') {
-      // Assertion for debug mode (requirement #7)
-      Logger.debug(`[ASSERTION] cancellation.ts received doctorId: ${doctorId}. No name lookup will be performed.`, 'CANCELLATION_ENGINE');
-    }
-
-    // 1. Identify the patient
-    const patient = await prisma.patient.findUnique({
-      where: {
-        hospitalId_phone: {
-          hospitalId,
-          phone: patientPhone,
-        },
-      },
+    // 1. Locate the appointment
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { doctor: true, patient: true },
     });
 
-    if (!patient) {
-      return {
-        status: 'FAILED_INVALID_PATIENT',
-        message: `Patient with phone ${patientPhone} does not exist in the system.`,
-      };
-    }
-
-    // 2. Locate the appointment(s)
-    // Find all appointments for this patient
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        patientId: patient.id,
-        hospitalId,
-      },
-      include: {
-        doctor: true,
-      },
-      orderBy: {
-        dateTime: 'asc',
-      },
-    });
-
-    if (appointments.length === 0) {
+    if (!appointment) {
       return {
         status: 'FAILED_NOT_FOUND',
-        message: 'No appointments found for this patient.',
+        message: 'No appointment found with the provided ID.',
       };
     }
 
-    // Filter appointments by doctorId or targetDateStr if provided
-    let filtered = appointments;
-
-    if (doctorId || targetDateStr) {
-      filtered = appointments.filter((appt) => {
-        let match = true;
-        if (doctorId) {
-          match = match && (appt.doctorId === doctorId);
-        }
-        if (targetDateStr) {
-          const apptDateStr = appt.dateTime.toISOString().substring(0, 10);
-          match = match && (apptDateStr === targetDateStr);
-        }
-        return match;
-      });
-    }
-
-    if (filtered.length === 0) {
-      return {
-        status: 'FAILED_NOT_FOUND',
-        message: `No appointment found matching criteria: Doctor ID: "${doctorId || 'any'}", Date: "${targetDateStr || 'any'}".`,
-      };
-    }
-
-    // Pick the matching appointment
-    const targetAppt = filtered[0];
-
-    // 3. Validate cancellation eligibility
-    if (targetAppt.status === AppointmentStatus.CANCELLED) {
+    if (appointment.status === 'CANCELLED') {
       return {
         status: 'FAILED_ALREADY_CANCELLED',
-        appointmentId: targetAppt.id,
-        doctor: targetAppt.doctor.name,
+        appointmentId: appointment.id,
+        doctor: appointment.doctor.name,
         message: 'This appointment has already been cancelled.',
       };
     }
 
-    // 4. Cancel the appointment using the Repository Layer
-    await AppointmentRepository.updateStatus(targetAppt.id, AppointmentStatus.CANCELLED);
+    // 2. Cancel the appointment
+    const updatedAppt = await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancellationReason: 'Cancelled by patient via AI receptionist voice call.',
+      },
+    });
 
-    Logger.info(`Appointment cancelled successfully! ID: ${targetAppt.id} - Doctor: ${targetAppt.doctor.name}`, 'CANCELLATION_ENGINE');
+    Logger.info(`Appointment cancelled successfully! ID: ${updatedAppt.id} - Doctor: ${appointment.doctor.name}`, 'CANCELLATION_ENGINE');
+
+    // 3. Record Call Log and Action Taken
+    await prisma.callLog.upsert({
+      where: { twilioCallSid: callSid },
+      update: { actionTaken: 'Appointment Cancelled' },
+      create: {
+        twilioCallSid: callSid,
+        hospitalId,
+        callStatus: 'in-progress',
+        actionTaken: 'Appointment Cancelled',
+        patientId: appointment.patientId,
+      },
+    });
 
     // Format date and time for response
-    const datePart = targetAppt.dateTime.toISOString().substring(0, 10);
-    const hrs = targetAppt.dateTime.getUTCHours();
-    const mins = targetAppt.dateTime.getUTCMinutes();
+    const datePart = appointment.dateTime.toISOString().substring(0, 10);
+    const hrs = appointment.dateTime.getUTCHours();
+    const mins = appointment.dateTime.getUTCMinutes();
     const ampm = hrs >= 12 ? 'PM' : 'AM';
     const hrs12 = hrs % 12 || 12;
     const timePart = `${hrs12}:${String(mins).padStart(2, '0')} ${ampm}`;
 
     return {
       status: 'CANCELLED',
-      appointmentId: targetAppt.id,
-      doctor: targetAppt.doctor.name,
+      appointmentId: appointment.id,
+      doctor: appointment.doctor.name,
       date: datePart,
       time: timePart,
     };

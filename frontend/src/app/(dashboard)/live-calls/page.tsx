@@ -173,6 +173,10 @@ export default function LiveCallsPage() {
                       <span className="uppercase font-semibold text-[10px] text-indigo-500 tracking-wider">
                         {activeCall.intent.replace("_", " ")}
                       </span>
+                      <span>•</span>
+                      <span className="inline-flex items-center rounded-full bg-indigo-50 dark:bg-indigo-950/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-500/10">
+                        {activeCall.state?.lifecycleState || "Idle"}
+                      </span>
                     </p>
                   </div>
                 </div>

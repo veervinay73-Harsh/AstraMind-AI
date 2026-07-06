@@ -2,12 +2,25 @@ import { processConversationTurn } from './stateManager';
 import { bookAppointment } from './booking';
 import { cancelAppointment } from './cancellation';
 import { rescheduleAppointment } from './rescheduling';
+import { changeDoctor, changeDate, changeTime } from './modification';
 import { queryKnowledgeBase } from './kbEngine';
 import { Logger } from '../utils/logger';
 import { broadcastToDashboard } from './eventHub';
 
 export interface OrchestratorResult {
-  selected_tool: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | 'RESCHEDULE_APPOINTMENT' | 'HOSPITAL_FAQ' | 'HUMAN_HANDOFF' | 'NONE';
+  selected_tool: 
+    | 'BOOK_APPOINTMENT' 
+    | 'CANCEL_APPOINTMENT' 
+    | 'RESCHEDULE_APPOINTMENT' 
+    | 'CHANGE_DOCTOR' 
+    | 'CHANGE_DATE' 
+    | 'CHANGE_TIME' 
+    | 'APPOINTMENT_STATUS' 
+    | 'UPCOMING_APPOINTMENTS' 
+    | 'PAST_APPOINTMENTS' 
+    | 'HOSPITAL_FAQ' 
+    | 'HUMAN_HANDOFF' 
+    | 'NONE';
   reason: string;
   result: any;
 }
@@ -19,12 +32,10 @@ export const orchestrateTurn = async (
   callerPhone: string
 ): Promise<OrchestratorResult> => {
   try {
-    // 1. Process the conversation turn via the State Manager
+    // 1. Process conversation state turn
     const state = await processConversationTurn(callSid, userUtterance, callerPhone, hospitalId);
 
-    // 2. Routing Decision Tree based on Intent and State
-    
-    // Turn A: TALK_TO_HUMAN
+    // 2. Human Handoff Routing
     if (state.intent === 'TALK_TO_HUMAN') {
       Logger.info(`Orchestrator routed to HUMAN_HANDOFF for CallSid: ${callSid}`, 'ORCHESTRATOR');
       return {
@@ -34,8 +45,8 @@ export const orchestrateTurn = async (
       };
     }
 
-    // Turn B: BOOK_APPOINTMENT
-    if (state.intent === 'BOOK_APPOINTMENT') {
+    // 3. Dispatch based on operation
+    if (state.operation === 'BOOK') {
       if (state.state === 'CONFIRMED') {
         Logger.info(`[STATE_TRANSITION] booking started for CallSid: ${callSid}`, 'ORCHESTRATOR');
         const bookingResult = await bookAppointment(callSid, state, hospitalId);
@@ -44,57 +55,170 @@ export const orchestrateTurn = async (
         }
         return {
           selected_tool: 'BOOK_APPOINTMENT',
-          reason: 'Customer confirmed all appointment details.',
+          reason: 'Customer confirmed all appointment booking details.',
           result: bookingResult,
         };
-      } else if (state.state === 'CONFIRMATION_REQUIRED') {
-        // HACKATHON DEMO: Seeded doctors are always considered available.
-        return {
-          selected_tool: 'NONE',
-          reason: 'Awaiting final confirmation.',
-          result: state,
-        };
-      } else {
-        // Still collecting slot details
-        return {
-          selected_tool: 'NONE',
-          reason: 'Still collecting appointment details or awaiting final confirmation.',
-          result: state,
-        };
-      }
-    }
-
-    // Turn C: CANCEL_APPOINTMENT
-    if (state.intent === 'CANCEL_APPOINTMENT') {
-      Logger.info(`Orchestrator routed to CANCEL_APPOINTMENT for CallSid: ${callSid}`, 'ORCHESTRATOR');
-      let cancelResult;
-      if (state.doctorId && state.date && state.time && state.state === 'CONFIRMED') {
-        cancelResult = await cancelAppointment(callerPhone, hospitalId, state.doctorId, state.date);
-        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
-      } else {
-        cancelResult = { status: 'SUCCESS', message: 'Booking flow aborted by user' };
       }
       return {
-        selected_tool: 'CANCEL_APPOINTMENT',
-        reason: 'Customer requested appointment cancellation or aborted booking confirmation.',
-        result: cancelResult,
+        selected_tool: 'NONE',
+        reason: state.state === 'CONFIRMATION_REQUIRED' ? 'Awaiting final booking confirmation.' : 'Still collecting booking details.',
+        result: state,
       };
     }
 
-    // Turn D: RESCHEDULE_APPOINTMENT
-    if (state.intent === 'RESCHEDULE_APPOINTMENT') {
-      Logger.info(`Orchestrator routed to RESCHEDULE_APPOINTMENT for CallSid: ${callSid}`, 'ORCHESTRATOR');
-      const rescheduleResult = await rescheduleAppointment(
-        callerPhone,
-        hospitalId,
-        state.date,
-        state.time,
-        state.doctorId
-      );
+    if (state.operation === 'CANCEL') {
+      if (!state.activeAppointmentId) {
+        return {
+          selected_tool: 'NONE',
+          reason: 'No active upcoming appointment was found to cancel.',
+          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
+        };
+      }
+      if (state.state === 'CONFIRMED') {
+        Logger.info(`Orchestrator executing cancelAppointment for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        const cancelResult = await cancelAppointment(callSid, state.activeAppointmentId, hospitalId);
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        return {
+          selected_tool: 'CANCEL_APPOINTMENT',
+          reason: 'Appointment cancellation confirmed by user.',
+          result: cancelResult,
+        };
+      }
       return {
-        selected_tool: 'RESCHEDULE_APPOINTMENT',
-        reason: 'Customer requested to reschedule an appointment.',
-        result: rescheduleResult,
+        selected_tool: 'NONE',
+        reason: 'Awaiting confirmation for cancellation.',
+        result: state,
+      };
+    }
+
+    if (state.operation === 'RESCHEDULE') {
+      if (!state.activeAppointmentId) {
+        return {
+          selected_tool: 'NONE',
+          reason: 'No active upcoming appointment was found to reschedule.',
+          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
+        };
+      }
+      if (state.state === 'CONFIRMED') {
+        Logger.info(`Orchestrator executing rescheduleAppointment for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        const rescheduleResult = await rescheduleAppointment(
+          callSid,
+          state.activeAppointmentId,
+          state.date,
+          state.time,
+          hospitalId
+        );
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        return {
+          selected_tool: 'RESCHEDULE_APPOINTMENT',
+          reason: 'Reschedule confirmed by user.',
+          result: rescheduleResult,
+        };
+      }
+      return {
+        selected_tool: 'NONE',
+        reason: 'Collecting reschedule details or awaiting confirmation.',
+        result: state,
+      };
+    }
+
+    if (state.operation === 'CHANGE_DOCTOR') {
+      if (!state.activeAppointmentId) {
+        return {
+          selected_tool: 'NONE',
+          reason: 'No active upcoming appointment was found to modify.',
+          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
+        };
+      }
+      if (state.state === 'CONFIRMED' && state.doctorId) {
+        Logger.info(`Orchestrator executing changeDoctor for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        const changeResult = await changeDoctor(callSid, state.activeAppointmentId, state.doctorId, hospitalId);
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        return {
+          selected_tool: 'CHANGE_DOCTOR',
+          reason: 'Doctor change confirmed by user.',
+          result: changeResult,
+        };
+      }
+      return {
+        selected_tool: 'NONE',
+        reason: 'Selecting new doctor or awaiting confirmation.',
+        result: state,
+      };
+    }
+
+    if (state.operation === 'CHANGE_DATE') {
+      if (!state.activeAppointmentId) {
+        return {
+          selected_tool: 'NONE',
+          reason: 'No active upcoming appointment was found to modify.',
+          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
+        };
+      }
+      if (state.state === 'CONFIRMED' && state.date) {
+        Logger.info(`Orchestrator executing changeDate for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        const changeResult = await changeDate(callSid, state.activeAppointmentId, state.date, hospitalId);
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        return {
+          selected_tool: 'CHANGE_DATE',
+          reason: 'Date change confirmed by user.',
+          result: changeResult,
+        };
+      }
+      return {
+        selected_tool: 'NONE',
+        reason: 'Selecting new date or awaiting confirmation.',
+        result: state,
+      };
+    }
+
+    if (state.operation === 'CHANGE_TIME') {
+      if (!state.activeAppointmentId) {
+        return {
+          selected_tool: 'NONE',
+          reason: 'No active upcoming appointment was found to modify.',
+          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
+        };
+      }
+      if (state.state === 'CONFIRMED' && state.time) {
+        Logger.info(`Orchestrator executing changeTime for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        const changeResult = await changeTime(callSid, state.activeAppointmentId, state.time, hospitalId);
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        return {
+          selected_tool: 'CHANGE_TIME',
+          reason: 'Time change confirmed by user.',
+          result: changeResult,
+        };
+      }
+      return {
+        selected_tool: 'NONE',
+        reason: 'Selecting new time or awaiting confirmation.',
+        result: state,
+      };
+    }
+
+    // Read-only / Inquiry operations
+    if (state.operation === 'STATUS') {
+      return {
+        selected_tool: 'APPOINTMENT_STATUS',
+        reason: 'Customer inquired about their appointment status.',
+        result: { status: 'SUCCESS', activeAppointmentId: state.activeAppointmentId, upcomingAppointments: state.upcomingAppointments },
+      };
+    }
+
+    if (state.operation === 'UPCOMING') {
+      return {
+        selected_tool: 'UPCOMING_APPOINTMENTS',
+        reason: 'Customer requested upcoming appointments.',
+        result: { status: 'SUCCESS', upcomingAppointments: state.upcomingAppointments },
+      };
+    }
+
+    if (state.operation === 'PAST') {
+      return {
+        selected_tool: 'PAST_APPOINTMENTS',
+        reason: 'Customer requested past appointments.',
+        result: { status: 'SUCCESS', pastAppointments: state.pastAppointments },
       };
     }
 

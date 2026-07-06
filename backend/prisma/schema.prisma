@@ -77,9 +77,12 @@ model Patient {
 
 enum AppointmentStatus {
   PENDING
+  BOOKED
   CONFIRMED
-  RESCHEDULED
   CANCELLED
+  RESCHEDULED
+  DOCTOR_CHANGED
+  COMPLETED
 }
 
 model Appointment {
@@ -99,6 +102,9 @@ model Appointment {
   hospital       Hospital          @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
   callLogId  String?           @unique
   callLog    CallLog?          @relation(fields: [callLogId], references: [id], onDelete: SetNull)
+  previousDateTime DateTime?
+  cancelledAt      DateTime?
+  cancellationReason String?
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 

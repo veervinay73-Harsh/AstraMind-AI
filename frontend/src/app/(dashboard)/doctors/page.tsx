@@ -577,6 +577,11 @@ export default function DoctorsPage() {
 
   useEffect(() => {
     fetchDoctors();
+    const handleRefresh = () => {
+      fetchDoctors();
+    };
+    window.addEventListener("refresh_dashboard", handleRefresh);
+    return () => window.removeEventListener("refresh_dashboard", handleRefresh);
   }, [fetchDoctors]);
 
   const handleFilterChange = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {

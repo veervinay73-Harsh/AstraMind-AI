@@ -149,7 +149,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     // Compute appointment type breakdown
-    const apptsByStatus = { CONFIRMED: 0, PENDING: 0, CANCELLED: 0, RESCHEDULED: 0 };
+    const apptsByStatus = { BOOKED: 0, CONFIRMED: 0, PENDING: 0, CANCELLED: 0, RESCHEDULED: 0, DOCTOR_CHANGED: 0, COMPLETED: 0 };
     for (const appt of patient.appointments) {
       const s = appt.status as keyof typeof apptsByStatus;
       if (s in apptsByStatus) apptsByStatus[s]++;

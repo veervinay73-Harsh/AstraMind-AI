@@ -103,7 +103,7 @@ router.get('/', async (req: Request, res: Response) => {
       prisma.appointment.count({
         where: {
           hospitalId: activeHospitalId,
-          status: 'CONFIRMED',
+          status: { in: ['CONFIRMED', 'BOOKED', 'DOCTOR_CHANGED', 'COMPLETED'] },
           createdAt: dateFilter,
         },
       }),
@@ -119,7 +119,7 @@ router.get('/', async (req: Request, res: Response) => {
       prisma.appointment.count({
         where: {
           hospitalId: activeHospitalId,
-          status: 'RESCHEDULED',
+          status: { in: ['RESCHEDULED', 'DOCTOR_CHANGED'] },
           createdAt: dateFilter,
         },
       }),

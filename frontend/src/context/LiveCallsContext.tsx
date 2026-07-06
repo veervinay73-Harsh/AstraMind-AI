@@ -31,6 +31,8 @@ export interface CallSession {
     time?: string | null;
     phone?: string | null;
     missing_fields: string[];
+    lifecycleState?: string | null;
+    operation?: string | null;
   };
   transcripts: TranscriptItem[];
   timeline: TimelineEvent[];

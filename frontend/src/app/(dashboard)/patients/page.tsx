@@ -623,6 +623,11 @@ export default function PatientsPage() {
 
   useEffect(() => {
     fetchPatients();
+    const handleRefresh = () => {
+      fetchPatients();
+    };
+    window.addEventListener("refresh_dashboard", handleRefresh);
+    return () => window.removeEventListener("refresh_dashboard", handleRefresh);
   }, [fetchPatients]);
 
   const handleResetFilters = () => {

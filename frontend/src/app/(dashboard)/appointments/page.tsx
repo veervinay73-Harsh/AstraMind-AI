@@ -54,6 +54,8 @@ interface Appointment {
   callLogId: string | null;
   patient: Patient;
   doctor: Doctor;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export default function AppointmentsPage() {
@@ -512,9 +514,21 @@ export default function AppointmentsPage() {
                       })}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
+                   <div className="flex justify-between items-center">
                     <span className="text-zinc-500">Current Status</span>
                     <span className="capitalize font-semibold text-indigo-500">{selectedAppt.status.toLowerCase()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Created Time</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">
+                      {new Date(selectedAppt.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Updated Time</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">
+                      {new Date(selectedAppt.updatedAt).toLocaleString()}
+                    </span>
                   </div>
                 </div>
               </div>

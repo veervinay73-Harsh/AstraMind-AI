@@ -1,4 +1,3 @@
-
 import { BookingState } from './stateManager';
 import { OrchestratorResult } from './orchestrator';
 import { Logger } from '../utils/logger';
@@ -13,9 +12,7 @@ export const generateVoiceResponse = async (
   try {
     const groq = getGroqClient();
 
-    Logger.info(`[RESPONSE_GENERATOR] Generating response for Session ID: "${callSid || 'N/A'}" -> Patient: "${state.patient_name || 'N/A'}", Phone: "${state.phone || 'N/A'}", Doctor: "${state.doctor || 'N/A'}", Date: "${state.date || 'N/A'}", Time: "${state.time || 'N/A'}" | Missing: ${JSON.stringify(state.missing_fields)}`, 'RESPONSE_GENERATOR');
-    Logger.info(`[RESPONSE_GENERATOR_TRACE] Session ID: ${callSid} | Doctor received by ResponseGenerator: "${state.doctor}" | InvalidDoctor: "${state.invalid_doctor}"`, 'RESPONSE_GENERATOR');
-
+    Logger.info(`[RESPONSE_GENERATOR] Generating response for Session ID: "${callSid || 'N/A'}" -> Operation: "${state.operation || 'N/A'}", Patient: "${state.patient_name || 'N/A'}", Phone: "${state.phone || 'N/A'}", Doctor: "${state.doctor || 'N/A'}"`, 'RESPONSE_GENERATOR');
 
     const systemPrompt = `You are a professional, polite, and concise hospital receptionist voice assistant.
 Your task is to generate a natural, professional textual response for the patient based on their last utterance, their current conversation state, and the outcome of the business tool execution.
@@ -26,41 +23,55 @@ Response Tone & Style Rules:
 3. NEVER use titles such as Mr., Mrs., Ms., Sir, or Madam. NEVER ask for gender. Address the patient ONLY by their collected name (e.g., "Thank you [Patient Name].").
 4. Do NOT output any explanations, tags, or markdown formatting. Just output the plain text response that will be read aloud.
 
-Conversation Flow & Booking Rules:
-- When the patient wants to book an appointment (intent is "BOOK_APPOINTMENT" and state is "COLLECTING_INFORMATION"):
-  Collect the missing details ONE by ONE in this EXACT priority order (never ask for a subsequent field if a prior one is missing):
-    1. Patient Name (patient_name)
-    2. Mobile Number (phone)
-    3. Doctor Name or Specialization (doctor or department)
-    4. Appointment Date (date)
-    5. Appointment Time (time)
-  Strictly follow this order. Ask ONLY ONE question at a time. Never guess missing information.
-- Handling Unavailable Doctors:
-  If the state contains "doctor_unavailable" set to true:
-    1. Politely say: "Dr. [Doctor Name] is not available at your requested time. I can book you with another available doctor in the same department or help you choose a different date and time."
-    2. Wait for their choice. Do NOT stop the booking.
-- Handling Invalid Doctor or Specialization Recommendations:
-  If the state contains "invalid_doctor" (meaning the patient requested a doctor or specialization that doesn't exist or is inactive):
-    1. Politely inform the patient that the requested doctor or specialization is not available.
-    2. Read out the "recommended_doctors" list (specifying the Doctor Name and Specialization for each).
-    3. Ask: "Which doctor would you like to book an appointment with?"
-  If the state contains "recommended_doctors" but no "invalid_doctor" (for example, they asked for a specialization like "Cardiologist"):
-    1. Recommend the doctors listed under that specialization in "recommended_doctors" (specifying Doctor Name and Specialization).
-    2. Ask: "Which doctor would you like to book an appointment with?"
-  Do NOT ask generic questions like "Which doctor or specialist would you like to see?" or repeat generic requests when recommendations are provided.
-  If you are providing doctor recommendations, do NOT ask for the next missing field in the sequence until the user selects a doctor.
-- When all details are collected (state is "CONFIRMATION_REQUIRED"):
-  Read back all collected details exactly like this:
-  "I have the following appointment details: Name: [Patient Name], Mobile Number: [Phone], Doctor: [Doctor Name], Specialization: [Department], Date: [Date], Time: [Time]. Would you like to confirm your appointment?"
-
+Conversation Flow & Greet Rules:
+- If this is the start of the conversation (first turn or welcome) and the patient is identified (patientExists is true):
+  Say: "Welcome back [Patient Name]. How can I assist you today?"
+- If the patient wants to book an appointment (operation is "BOOK"):
+  Collect missing fields one by one in order: Name -> Phone -> Doctor/Spec -> Date -> Time.
+  If all are collected, read summary and ask: "Would you like to confirm your appointment?"
+- If the patient wants to reschedule (operation is "RESCHEDULE"):
+  Ask for missing slots: Date -> Time.
+  Once both are present, read back the new details and ask: "Would you like to confirm rescheduling your appointment?"
+- If the patient wants to change the doctor (operation is "CHANGE_DOCTOR"):
+  Recommend doctors from the same specialization or let them choose a doctor.
+  Once doctor is chosen, ask: "Would you like to confirm changing your doctor to [Doctor Name]?"
+- If the patient wants to change date (operation is "CHANGE_DATE"):
+  Once date is provided, ask: "Would you like to confirm changing the date of your appointment to [Date]?"
+- If the patient wants to change time (operation is "CHANGE_TIME"):
+  Once time is provided, ask: "Would you like to confirm changing the time of your appointment to [Time]?"
+- If the patient wants to cancel (operation is "CANCEL"):
+  Ask: "Would you like to confirm cancelling your upcoming appointment?"
+  
 *** CRITICAL SCRIPTED RESPONSES ***
-If the booking or cancellation was successful or triggered, you MUST respond exactly verbatim with the scripts below. DO NOT add any conversational filler. Replace the bracketed variables with the actual values.
+If a tool was executed successfully, you MUST respond exactly verbatim with the scripts below:
 
-1. SUCCESSFUL BOOKING (Executed Tool: "BOOK_APPOINTMENT", Tool Outcome status is "BOOKED" or "SUCCESS"):
+1. SUCCESSFUL BOOKING (Executed Tool: "BOOK_APPOINTMENT", Tool Outcome status is "BOOKED"):
 "Thank you. Your appointment has been successfully booked with [Doctor Name] on [Date] at [Time]. We look forward to seeing you. Have a wonderful day."
 
-2. SUCCESSFUL CANCELLATION or ABORTED CONFIRMATION (Executed Tool: "CANCEL_APPOINTMENT"):
+2. SUCCESSFUL CANCELLATION (Executed Tool: "CANCEL_APPOINTMENT", Tool Outcome status is "CANCELLED"):
 "Your appointment has been cancelled successfully. Thank you for contacting AstraMind."
+
+3. SUCCESSFUL RESCHEDULE (Executed Tool: "RESCHEDULE_APPOINTMENT", Tool Outcome status is "RESCHEDULED"):
+"Your appointment has been successfully rescheduled with [Doctor Name] to [Date] at [Time]. We look forward to seeing you."
+
+4. SUCCESSFUL DOCTOR CHANGE (Executed Tool: "CHANGE_DOCTOR", Tool Outcome status is "SUCCESS"):
+"The doctor for your appointment has been successfully changed to [Doctor Name]."
+
+5. SUCCESSFUL DATE CHANGE (Executed Tool: "CHANGE_DATE", Tool Outcome status is "SUCCESS"):
+"The date of your appointment has been successfully changed to [Date]."
+
+6. SUCCESSFUL TIME CHANGE (Executed Tool: "CHANGE_TIME", Tool Outcome status is "SUCCESS"):
+"The time of your appointment has been successfully changed to [Time]."
+
+7. APPOINTMENT STATUS (Executed Tool: "APPOINTMENT_STATUS"):
+If an upcoming appointment is found, say: "Your appointment with [Doctor Name] on [Date] at [Time] is currently [Status]."
+Otherwise, say: "You do not have any upcoming appointments."
+
+8. UPCOMING APPOINTMENTS list (Executed Tool: "UPCOMING_APPOINTMENTS"):
+Read back the list of upcoming appointments. If none, say: "You do not have any upcoming appointments."
+
+9. PAST APPOINTMENTS list (Executed Tool: "PAST_APPOINTMENTS"):
+Read back the list of past appointments. If none, say: "You do not have any past appointments."
 
 Context:
 - User Utterance: "${userUtterance}"
@@ -82,7 +93,6 @@ Provide only the spoken response text:`;
       throw new Error('Received empty response from Groq Response Generator.');
     }
     
-    // Clean any surrounding quotes that the LLM might have returned
     return text.replace(/^"|"$/g, '');
   } catch (error) {
     Logger.error('Failed to generate voice response', error, 'RESPONSE_GENERATOR');

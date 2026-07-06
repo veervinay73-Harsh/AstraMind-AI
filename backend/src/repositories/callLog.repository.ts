@@ -34,6 +34,7 @@ export class CallLogRepository {
     hospitalId: string;
     callStatus: string;
     patientId?: string;
+    actionTaken?: string;
   }): Promise<CallLog> {
     return prisma.callLog.create({
       data,
