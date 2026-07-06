@@ -1,5 +1,6 @@
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
+import { getLatestActiveAppointmentByPhone } from './appointmentHelper';
 
 export interface ModificationResult {
   status: 'SUCCESS' | 'FAILED_NOT_FOUND' | 'FAILED_MISSING_FIELDS';
@@ -12,22 +13,19 @@ export interface ModificationResult {
 
 export const changeDoctor = async (
   callSid: string,
-  appointmentId: string,
-  newDoctorId: string,
-  hospitalId: string
+  hospitalId: string,
+  callerPhone: string,
+  newDoctorId: string
 ): Promise<ModificationResult> => {
   try {
-    if (!appointmentId || !newDoctorId) {
-      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing appointment ID or doctor ID.' };
+    if (!newDoctorId) {
+      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing doctor ID.' };
     }
 
-    const appt = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { patient: true }
-    });
+    const appt = await getLatestActiveAppointmentByPhone(hospitalId, callerPhone);
 
     if (!appt) {
-      return { status: 'FAILED_NOT_FOUND', message: 'Appointment not found.' };
+      return { status: 'FAILED_NOT_FOUND', message: 'No active appointment found.' };
     }
 
     const doctor = await prisma.doctor.findUnique({ where: { id: newDoctorId } });
@@ -36,7 +34,7 @@ export const changeDoctor = async (
     }
 
     const updated = await prisma.appointment.update({
-      where: { id: appointmentId },
+      where: { id: appt.id },
       data: {
         doctorId: newDoctorId,
         status: 'DOCTOR_CHANGED',
@@ -58,11 +56,12 @@ export const changeDoctor = async (
       },
     });
 
-    Logger.info(`Doctor changed successfully for appointment ${appointmentId} to ${doctor.name}`, 'MODIFICATION_ENGINE');
+    Logger.info(`Doctor changed successfully for appointment ${appt.id} to ${doctor.name}`, 'MODIFICATION_ENGINE');
 
     return {
       status: 'SUCCESS',
       appointmentId: updated.id,
+
       doctor: updated.doctor.name,
     };
   } catch (error) {
@@ -73,22 +72,19 @@ export const changeDoctor = async (
 
 export const changeDate = async (
   callSid: string,
-  appointmentId: string,
-  newDateStr: string,
-  hospitalId: string
+  hospitalId: string,
+  callerPhone: string,
+  newDateStr: string
 ): Promise<ModificationResult> => {
   try {
-    if (!appointmentId || !newDateStr) {
-      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing appointment ID or new date.' };
+    if (!newDateStr) {
+      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing new date.' };
     }
 
-    const appt = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { doctor: true }
-    });
+    const appt = await getLatestActiveAppointmentByPhone(hospitalId, callerPhone);
 
     if (!appt) {
-      return { status: 'FAILED_NOT_FOUND', message: 'Appointment not found.' };
+      return { status: 'FAILED_NOT_FOUND', message: 'No active appointment found.' };
     }
 
     // Preserve time components, only update year, month, date
@@ -109,7 +105,7 @@ export const changeDate = async (
     ));
 
     await prisma.appointment.update({
-      where: { id: appointmentId },
+      where: { id: appt.id },
       data: {
         previousDateTime: appt.dateTime,
         dateTime: newAppointmentDate,
@@ -130,7 +126,7 @@ export const changeDate = async (
       },
     });
 
-    Logger.info(`Date changed successfully for appointment ${appointmentId} to ${newDateStr}`, 'MODIFICATION_ENGINE');
+    Logger.info(`Date changed successfully for appointment ${appt.id} to ${newDateStr}`, 'MODIFICATION_ENGINE');
 
     return {
       status: 'SUCCESS',
@@ -146,22 +142,19 @@ export const changeDate = async (
 
 export const changeTime = async (
   callSid: string,
-  appointmentId: string,
-  newTimeStr: string,
-  hospitalId: string
+  hospitalId: string,
+  callerPhone: string,
+  newTimeStr: string
 ): Promise<ModificationResult> => {
   try {
-    if (!appointmentId || !newTimeStr) {
-      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing appointment ID or new time.' };
+    if (!newTimeStr) {
+      return { status: 'FAILED_MISSING_FIELDS', message: 'Missing new time.' };
     }
 
-    const appt = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { doctor: true }
-    });
+    const appt = await getLatestActiveAppointmentByPhone(hospitalId, callerPhone);
 
     if (!appt) {
-      return { status: 'FAILED_NOT_FOUND', message: 'Appointment not found.' };
+      return { status: 'FAILED_NOT_FOUND', message: 'No active appointment found.' };
     }
 
     // Parse time
@@ -194,7 +187,7 @@ export const changeTime = async (
     ));
 
     await prisma.appointment.update({
-      where: { id: appointmentId },
+      where: { id: appt.id },
       data: {
         previousDateTime: appt.dateTime,
         dateTime: newAppointmentDate,
@@ -215,7 +208,7 @@ export const changeTime = async (
       },
     });
 
-    Logger.info(`Time changed successfully for appointment ${appointmentId} to ${newTimeStr}`, 'MODIFICATION_ENGINE');
+    Logger.info(`Time changed successfully for appointment ${appt.id} to ${newTimeStr}`, 'MODIFICATION_ENGINE');
 
     return {
       status: 'SUCCESS',

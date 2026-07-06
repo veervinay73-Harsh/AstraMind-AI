@@ -25,7 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
     const sortDirection: 'asc' | 'desc' = (sort as string) === 'desc' ? 'desc' : 'asc';
 
     let activeHospitalId = hospitalId as string;
-    if (!activeHospitalId) {
+    if (!activeHospitalId || activeHospitalId === 'default') {
       const firstHospital = await prisma.hospital.findFirst();
       if (firstHospital) {
         activeHospitalId = firstHospital.id;
@@ -35,6 +35,9 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Add support for filtering by multiple statuses natively if comma separated
+    const statuses = status ? (status as string).split(',') : undefined;
+
     const pageNum = parseInt(page as string) || 1;
     const limitNum = parseInt(limit as string) || 10;
     const skip = (pageNum - 1) * limitNum;
@@ -43,8 +46,12 @@ router.get('/', async (req: Request, res: Response) => {
       hospitalId: activeHospitalId,
     };
 
-    if (status) {
-      where.status = status as any;
+    if (statuses && statuses.length > 0) {
+      if (statuses.length === 1) {
+        where.status = statuses[0] as any;
+      } else {
+        where.status = { in: statuses as any[] };
+      }
     }
 
     if (doctorId) {

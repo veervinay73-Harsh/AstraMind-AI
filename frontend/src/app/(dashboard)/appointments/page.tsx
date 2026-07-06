@@ -300,6 +300,8 @@ export default function AppointmentsPage() {
                   <th className="p-4">Doctor (Specialization)</th>
                   <th className="p-4">Date / Time</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4">Created Time</th>
+                  <th className="p-4">Updated Time</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -343,14 +345,23 @@ export default function AppointmentsPage() {
                             ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400"
                             : appt.status === "CANCELLED"
                             ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400"
+                            : appt.status === "DOCTOR_CHANGED"
+                            ? "bg-cyan-50 dark:bg-cyan-950/20 text-cyan-600 dark:text-cyan-400"
                             : "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400"
                         }`}>
                           {appt.status === "CONFIRMED" && <CheckCircle2 className="h-3.5 w-3.5" />}
                           {appt.status === "RESCHEDULED" && <Clock className="h-3.5 w-3.5 animate-pulse" />}
                           {appt.status === "CANCELLED" && <XCircle className="h-3.5 w-3.5" />}
                           {appt.status === "PENDING" && <Clock className="h-3.5 w-3.5" />}
-                          <span>{appt.status.toLowerCase()}</span>
+                          {appt.status === "DOCTOR_CHANGED" && <Stethoscope className="h-3.5 w-3.5" />}
+                          <span>{appt.status.toLowerCase().replace('_', ' ')}</span>
                         </span>
+                      </td>
+                      <td className="p-4 text-zinc-700 dark:text-zinc-300 text-xs">
+                        {new Date(appt.createdAt).toLocaleString([], { year: '2-digit', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="p-4 text-zinc-700 dark:text-zinc-300 text-xs">
+                        {new Date(appt.updatedAt).toLocaleString([], { year: '2-digit', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="p-4 text-right">
                         <button className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-400 hover:text-zinc-600">

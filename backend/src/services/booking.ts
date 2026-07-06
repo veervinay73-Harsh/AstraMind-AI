@@ -4,6 +4,7 @@ import { CallLogRepository } from '../repositories/callLog.repository';
 import { BookingState } from './stateManager';
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
+import { getLatestActiveAppointmentByPhone } from './appointmentHelper';
 
 export interface BookingResult {
   status: 'BOOKED' | 'FAILED_SLOT_OCCUPIED' | 'FAILED_DOCTOR_NOT_FOUND' | 'FAILED_MISSING_FIELDS' | 'FAILED_INTERNAL_ERROR';
@@ -18,7 +19,8 @@ export interface BookingResult {
 export const bookAppointment = async (
   _callSid: string,
   state: BookingState,
-  hospitalId: string
+  hospitalId: string,
+  callerPhone: string
 ): Promise<BookingResult> => {
   try {
     // 1. Verify all required booking fields are present
@@ -92,7 +94,8 @@ export const bookAppointment = async (
 
     // 4. Find or Create Patient profile
     const patientName = state.patient_name!;
-    const patientPhone = state.phone!;
+    // Prefer phone from state (what patient said), fallback to callerPhone (Twilio caller ID)
+    const patientPhone = state.phone || callerPhone;
 
     let patient = await prisma.patient.findUnique({
       where: {
@@ -139,20 +142,40 @@ export const bookAppointment = async (
       });
     }
 
-    // 6. Create appointment in DB
-    const newAppointment = await AppointmentRepository.create({
-      patientId: patient.id,
-      doctorId: doctor.id,
-      dateTime: appointmentDate,
-      duration: 30,
-      hospitalId,
-      department: state.department || doctor.specialization,
-      notes: 'Booked via AstraMind AI voice assistant.',
-      status: 'CONFIRMED',
-      callLogId: callLog.id,
-    });
+    // 6. Check if an active appointment already exists
+    const activeAppointment = await getLatestActiveAppointmentByPhone(hospitalId, patientPhone);
 
-    Logger.info(`[STATE_TRANSITION] booking completed! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
+    let newAppointment;
+
+    if (activeAppointment) {
+      // UPDATE EXISTING APPOINTMENT
+      newAppointment = await prisma.appointment.update({
+        where: { id: activeAppointment.id },
+        data: {
+          doctorId: doctor.id,
+          dateTime: appointmentDate,
+          department: state.department || doctor.specialization,
+          status: 'RESCHEDULED',
+          notes: 'Modified via AstraMind AI voice assistant. (Duplicate booking attempt converted to update).',
+          callLogId: callLog.id,
+        },
+      });
+      Logger.info(`[STATE_TRANSITION] Updated existing appointment! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
+    } else {
+      // CREATE NEW APPOINTMENT
+      newAppointment = await AppointmentRepository.create({
+        patientId: patient.id,
+        doctorId: doctor.id,
+        dateTime: appointmentDate,
+        duration: 30,
+        hospitalId,
+        department: state.department || doctor.specialization,
+        notes: 'Booked via AstraMind AI voice assistant.',
+        status: 'CONFIRMED',
+        callLogId: callLog.id,
+      });
+      Logger.info(`[STATE_TRANSITION] booking completed! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
+    }
 
     return {
       status: 'BOOKED',
@@ -170,6 +193,7 @@ export const bookAppointment = async (
     };
   }
 };
+
 
 export const checkDoctorAvailability = async (_doctorId: string, _dateStr: string, _timeStr: string): Promise<boolean> => {
   // Always return true for the Hackathon Demo

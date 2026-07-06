@@ -1,5 +1,6 @@
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
+import { getLatestActiveAppointmentByPhone } from './appointmentHelper';
 
 export interface RescheduleResult {
   status: 'RESCHEDULED' | 'FAILED_SLOT_OCCUPIED' | 'FAILED_DOCTOR_NOT_FOUND' | 'FAILED_NOT_FOUND' | 'FAILED_INVALID_PATIENT' | 'FAILED_MISSING_FIELDS';
@@ -14,30 +15,27 @@ export interface RescheduleResult {
 
 export const rescheduleAppointment = async (
   callSid: string,
-  appointmentId: string,
+  hospitalId: string,
+  callerPhone: string,
   newDateStr: string | null | undefined,
-  newTimeStr: string | null | undefined,
-  hospitalId: string
+  newTimeStr: string | null | undefined
 ): Promise<RescheduleResult> => {
   try {
     // 1. Verify required fields are present
-    if (!appointmentId || !newDateStr || !newTimeStr) {
+    if (!newDateStr || !newTimeStr) {
       return {
         status: 'FAILED_MISSING_FIELDS',
         message: 'Missing required fields for rescheduling.',
       };
     }
 
-    // 2. Locate the existing appointment
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { doctor: true },
-    });
+    // 2. Locate the existing active appointment using phone number
+    const appointment = await getLatestActiveAppointmentByPhone(hospitalId, callerPhone);
 
     if (!appointment) {
       return {
         status: 'FAILED_NOT_FOUND',
-        message: 'No appointment found with the provided ID.',
+        message: 'No active appointment found for this patient.',
       };
     }
 
@@ -71,7 +69,7 @@ export const rescheduleAppointment = async (
 
     // Update appointment
     await prisma.appointment.update({
-      where: { id: appointmentId },
+      where: { id: appointment.id },
       data: {
         previousDateTime: appointment.dateTime,
         dateTime: newAppointmentDate,
@@ -80,7 +78,7 @@ export const rescheduleAppointment = async (
       },
     });
 
-    Logger.info(`Appointment rescheduled successfully! ID: ${appointmentId} - Doctor: ${appointment.doctor.name} to ${requestedSlot}`, 'RESCHEDULING_ENGINE');
+    Logger.info(`Appointment rescheduled successfully! ID: ${appointment.id} - Doctor: ${appointment.doctor.name} to ${requestedSlot}`, 'RESCHEDULING_ENGINE');
 
     // 4. Record Call Log and Action Taken
     await prisma.callLog.upsert({

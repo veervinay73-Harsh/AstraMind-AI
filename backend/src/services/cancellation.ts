@@ -1,5 +1,6 @@
 import prisma from '../config/prisma';
 import { Logger } from '../utils/logger';
+import { getLatestActiveAppointmentByPhone } from './appointmentHelper';
 
 export interface CancellationResult {
   status: 'CANCELLED' | 'FAILED_NOT_FOUND' | 'FAILED_INVALID_PATIENT' | 'FAILED_ALREADY_CANCELLED';
@@ -12,20 +13,17 @@ export interface CancellationResult {
 
 export const cancelAppointment = async (
   callSid: string,
-  appointmentId: string,
-  hospitalId: string
+  hospitalId: string,
+  callerPhone: string
 ): Promise<CancellationResult> => {
   try {
-    // 1. Locate the appointment
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { doctor: true, patient: true },
-    });
+    // 1. Locate the active appointment using phone number
+    const appointment = await getLatestActiveAppointmentByPhone(hospitalId, callerPhone);
 
     if (!appointment) {
       return {
         status: 'FAILED_NOT_FOUND',
-        message: 'No appointment found with the provided ID.',
+        message: 'No active appointment found for this patient.',
       };
     }
 
@@ -40,7 +38,7 @@ export const cancelAppointment = async (
 
     // 2. Cancel the appointment
     const updatedAppt = await prisma.appointment.update({
-      where: { id: appointmentId },
+      where: { id: appointment.id },
       data: {
         status: 'CANCELLED',
         cancelledAt: new Date(),

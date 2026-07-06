@@ -45,11 +45,10 @@ export const orchestrateTurn = async (
       };
     }
 
-    // 3. Dispatch based on operation
     if (state.operation === 'BOOK') {
       if (state.state === 'CONFIRMED') {
         Logger.info(`[STATE_TRANSITION] booking started for CallSid: ${callSid}`, 'ORCHESTRATOR');
-        const bookingResult = await bookAppointment(callSid, state, hospitalId);
+        const bookingResult = await bookAppointment(callSid, state, hospitalId, callerPhone);
         if (bookingResult.status === 'BOOKED' || bookingResult.status === 'SUCCESS' as any) {
           broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         }
@@ -67,16 +66,9 @@ export const orchestrateTurn = async (
     }
 
     if (state.operation === 'CANCEL') {
-      if (!state.activeAppointmentId) {
-        return {
-          selected_tool: 'NONE',
-          reason: 'No active upcoming appointment was found to cancel.',
-          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
-        };
-      }
       if (state.state === 'CONFIRMED') {
         Logger.info(`Orchestrator executing cancelAppointment for CallSid: ${callSid}`, 'ORCHESTRATOR');
-        const cancelResult = await cancelAppointment(callSid, state.activeAppointmentId, hospitalId);
+        const cancelResult = await cancelAppointment(callSid, hospitalId, callerPhone);
         broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         return {
           selected_tool: 'CANCEL_APPOINTMENT',
@@ -92,21 +84,14 @@ export const orchestrateTurn = async (
     }
 
     if (state.operation === 'RESCHEDULE') {
-      if (!state.activeAppointmentId) {
-        return {
-          selected_tool: 'NONE',
-          reason: 'No active upcoming appointment was found to reschedule.',
-          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
-        };
-      }
       if (state.state === 'CONFIRMED') {
         Logger.info(`Orchestrator executing rescheduleAppointment for CallSid: ${callSid}`, 'ORCHESTRATOR');
         const rescheduleResult = await rescheduleAppointment(
           callSid,
-          state.activeAppointmentId,
+          hospitalId,
+          callerPhone,
           state.date,
-          state.time,
-          hospitalId
+          state.time
         );
         broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         return {
@@ -123,16 +108,9 @@ export const orchestrateTurn = async (
     }
 
     if (state.operation === 'CHANGE_DOCTOR') {
-      if (!state.activeAppointmentId) {
-        return {
-          selected_tool: 'NONE',
-          reason: 'No active upcoming appointment was found to modify.',
-          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
-        };
-      }
       if (state.state === 'CONFIRMED' && state.doctorId) {
         Logger.info(`Orchestrator executing changeDoctor for CallSid: ${callSid}`, 'ORCHESTRATOR');
-        const changeResult = await changeDoctor(callSid, state.activeAppointmentId, state.doctorId, hospitalId);
+        const changeResult = await changeDoctor(callSid, hospitalId, callerPhone, state.doctorId);
         broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         return {
           selected_tool: 'CHANGE_DOCTOR',
@@ -148,16 +126,9 @@ export const orchestrateTurn = async (
     }
 
     if (state.operation === 'CHANGE_DATE') {
-      if (!state.activeAppointmentId) {
-        return {
-          selected_tool: 'NONE',
-          reason: 'No active upcoming appointment was found to modify.',
-          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
-        };
-      }
       if (state.state === 'CONFIRMED' && state.date) {
         Logger.info(`Orchestrator executing changeDate for CallSid: ${callSid}`, 'ORCHESTRATOR');
-        const changeResult = await changeDate(callSid, state.activeAppointmentId, state.date, hospitalId);
+        const changeResult = await changeDate(callSid, hospitalId, callerPhone, state.date);
         broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         return {
           selected_tool: 'CHANGE_DATE',
@@ -173,16 +144,9 @@ export const orchestrateTurn = async (
     }
 
     if (state.operation === 'CHANGE_TIME') {
-      if (!state.activeAppointmentId) {
-        return {
-          selected_tool: 'NONE',
-          reason: 'No active upcoming appointment was found to modify.',
-          result: { status: 'FAILED_NOT_FOUND', message: 'No upcoming appointment found.' },
-        };
-      }
       if (state.state === 'CONFIRMED' && state.time) {
         Logger.info(`Orchestrator executing changeTime for CallSid: ${callSid}`, 'ORCHESTRATOR');
-        const changeResult = await changeTime(callSid, state.activeAppointmentId, state.time, hospitalId);
+        const changeResult = await changeTime(callSid, hospitalId, callerPhone, state.time);
         broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
         return {
           selected_tool: 'CHANGE_TIME',

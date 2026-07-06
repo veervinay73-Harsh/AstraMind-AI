@@ -153,7 +153,7 @@ export default function DashboardPage() {
     try {
       const [analyticsRes, apptsRes] = await Promise.all([
         fetch(`${BASE_URL}/analytics?period=today`),
-        fetch(`${BASE_URL}/appointments?limit=5&sort=desc`),
+        fetch(`${BASE_URL}/appointments?limit=5&sort=desc&status=CONFIRMED,RESCHEDULED,DOCTOR_CHANGED`),
       ]);
 
       if (!analyticsRes.ok) throw new Error("Failed to load analytics.");

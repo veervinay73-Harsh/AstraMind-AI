@@ -77,7 +77,7 @@ router.get('/', async (req: Request, res: Response) => {
               gte: startOfToday,
               lte: endOfToday,
             },
-            status: { not: 'CANCELLED' },
+            status: { in: ['CONFIRMED', 'RESCHEDULED', 'DOCTOR_CHANGED', 'PENDING'] },
           },
         });
 
@@ -200,12 +200,12 @@ router.get('/:id/availability', async (req: Request, res: Response) => {
     const doctorAvail = availabilities.find((a) => a.doctorId === idStr);
     const availableSlots = doctorAvail ? doctorAvail.availableSlots : [];
 
-    // Get upcoming appointments overall
+    // Get upcoming appointments overall (exclude CANCELLED and COMPLETED)
     const upcomingAppointments = await prisma.appointment.findMany({
       where: {
         doctorId: idStr,
         dateTime: { gte: new Date() },
-        status: { not: 'CANCELLED' },
+        status: { in: ['CONFIRMED', 'RESCHEDULED', 'DOCTOR_CHANGED', 'PENDING'] },
       },
       include: {
         patient: true,
