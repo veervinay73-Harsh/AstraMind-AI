@@ -89,7 +89,7 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
           timestamp: new Date().toISOString(),
         });
 
-        const greetingText = "Hello! Welcome to AstraMind Integrated Medical Center. I'm your AI receptionist. How may I assist you today?";
+        const greetingText = "Hello! Welcome to AstraMind Integrated Medical Center. I'm your AI receptionist. May I know your name, please?";
         
         send({ type: 'ai_response', text: greetingText });
         broadcastToDashboard({
@@ -203,7 +203,7 @@ export const handleSession = (ws: WebSocket, req?: IncomingMessage): void => {
                 state: sessionState,
               });
 
-              const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult, sessionId);
+              const voiceResponse = await generateVoiceResponse(transcript, sessionState, orchestratorResult, sessionId, bookingStateBefore);
               
               const isIntentUnknown = sessionState.latest_intent === 'UNKNOWN';
               Logger.info(`

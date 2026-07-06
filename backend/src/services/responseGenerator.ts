@@ -6,7 +6,8 @@ export const generateVoiceResponse = async (
   _userUtterance: string,
   state: BookingState,
   orchestratorResult: OrchestratorResult,
-  callSid?: string
+  callSid?: string,
+  stateBefore?: BookingState
 ): Promise<string> => {
   try {
     Logger.info(`[RESPONSE_GENERATOR] Programmatic response generation for Session ID: "${callSid || 'N/A'}" -> Operation: "${state.operation || 'N/A'}", Patient: "${state.patient_name || 'N/A'}", Phone: "${state.phone || 'N/A'}", Doctor: "${state.doctor || 'N/A'}"`, 'RESPONSE_GENERATOR');
@@ -18,7 +19,7 @@ export const generateVoiceResponse = async (
 
       if (tool === 'BOOK_APPOINTMENT') {
         if (res.status === 'BOOKED' || res.appointmentId) {
-          return `Thank you. Your appointment has been successfully booked with ${res.doctor || state.doctor || 'your doctor'} on ${res.date || state.date} at ${res.time || state.time}. We look forward to seeing you. Have a wonderful day.`;
+          return `Your appointment has been successfully confirmed. Thank you for choosing AstraMind Integrated Medical Center. We look forward to seeing you on ${res.date || state.date} at ${res.time || state.time}. Have a wonderful day.`;
         }
         if (res.status === 'FAILED_DOCTOR_NOT_FOUND') {
           return `I couldn't find the doctor you requested. Please let me know which doctor or department you would like to see.`;
@@ -65,7 +66,6 @@ export const generateVoiceResponse = async (
         const upcoming = res.upcomingAppointments || [];
         if (upcoming.length > 0) {
           const first = upcoming[0];
-          // Format date and time naturally
           const d = new Date(first.dateTime);
           const dateStr = d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
           const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -117,7 +117,15 @@ export const generateVoiceResponse = async (
     if (state.state === 'CONFIRMATION_REQUIRED') {
       const op = state.operation;
       if (op === 'BOOK') {
-        return `I have all the details for your booking with ${state.doctor} on ${state.date} at ${state.time}. Would you like to confirm this appointment?`;
+        const intro = stateBefore && !stateBefore.time && state.time ? "Great. " : "";
+        return `${intro}Here are your appointment details:
+
+Name: ${state.patient_name || 'Not specified'}
+Doctor: ${state.doctor || 'Not specified'}
+Date: ${state.date || 'Not specified'}
+Time: ${state.time || 'Not specified'}
+
+Would you like to confirm your appointment?`;
       }
       if (op === 'CANCEL') {
         return `Would you like to confirm cancelling your upcoming appointment?`;
@@ -141,7 +149,7 @@ export const generateVoiceResponse = async (
       if (missing.length > 0) {
         const nextField = missing[0];
         if (nextField === 'patient_name') {
-          return `Could you please tell me your full name?`;
+          return `May I know your name, please?`;
         }
         if (nextField === 'phone') {
           return `What is your phone number?`;
@@ -158,13 +166,15 @@ export const generateVoiceResponse = async (
           return `Which doctor or department would you like to visit?`;
         }
         if (nextField === 'date') {
+          const intro = stateBefore && !stateBefore.doctor && state.doctor ? `Certainly, ${state.patient_name || ''}. ` : "";
           if (state.doctor) {
-            return `What date would you like to book your appointment with ${state.doctor}?`;
+            return `${intro}What date would you like to book your appointment with ${state.doctor}?`;
           }
-          return `What date would you like to book your appointment?`;
+          return `${intro}What date would you like to book your appointment?`;
         }
         if (nextField === 'time') {
-          return `What time would you like to book?`;
+          const intro = stateBefore && !stateBefore.date && state.date ? "Perfect. " : "";
+          return `${intro}What time would you prefer?`;
         }
       }
     }
@@ -174,10 +184,13 @@ export const generateVoiceResponse = async (
     }
 
     // 3. Fallback / Welcome state
-    if (state.patientExists && state.patient_name) {
-      return `Welcome back ${state.patient_name}. How can I assist you today?`;
+    if (state.patient_name) {
+      if (state.patientExists) {
+        return `Welcome back ${state.patient_name}. How can I help you today?`;
+      }
+      return `Nice to meet you, ${state.patient_name}. How can I help you today?`;
     }
-    return `Hello! Welcome to AstraMind Integrated Medical Center. I'm your AI receptionist. How may I assist you today?`;
+    return `Hello! Welcome to AstraMind Integrated Medical Center. I'm your AI receptionist. May I know your name, please?`;
 
   } catch (error) {
     Logger.error('Failed to generate programmatic voice response', error, 'RESPONSE_GENERATOR');

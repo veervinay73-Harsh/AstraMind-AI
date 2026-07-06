@@ -206,7 +206,8 @@ Slots to extract:
 6. time: The appointment time (convert to "HH:MM AM/PM", e.g., "02:00 PM").
 
 Rules:
-- ONLY output new values provided by the user in this specific utterance.
+- Extract ALL slots and entities that are present in the user's entire utterance. Never stop after the first detected entity.
+- ONLY output values explicitly provided by the user in this specific utterance.
 - If the user has not explicitly provided a slot in THIS utterance, output null.
 - Do NOT output placeholder strings like "unknown", "not specified", "none", "null", "undefined". Output null instead.
 
