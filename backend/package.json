@@ -4,9 +4,9 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
-    "dev": "nodemon src/index.ts",
+    "dev": "prisma generate && nodemon src/index.ts",
     "seed": "ts-node -r dotenv/config prisma/seed.ts dotenv_config_path=.env"
   },
   "keywords": [],
