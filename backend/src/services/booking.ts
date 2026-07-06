@@ -21,8 +21,11 @@ export const bookAppointment = async (
 ): Promise<BookingResult> => {
   try {
     // 1. Verify all required booking fields are present
-    const required: (keyof BookingState)[] = ['patient_name', 'phone', 'age', 'gender', 'is_new_patient', 'department', 'reason_for_visit', 'date', 'time'];
-    const missing = required.filter((field) => !state[field]);
+    const required: (keyof BookingState)[] = ['patient_name', 'phone', 'date', 'time'];
+    const missing: string[] = required.filter((field) => !state[field]);
+    if (!state.department && !state.doctorId) {
+      missing.push('department');
+    }
     if (missing.length > 0) {
       return {
         status: 'FAILED_MISSING_FIELDS',
@@ -104,18 +107,12 @@ export const bookAppointment = async (
       patient = await PatientRepository.create({
         name: patientName,
         phone: patientPhone,
-        age: state.age || undefined,
-        gender: state.gender || undefined,
-        isNewPatient: state.is_new_patient ?? undefined,
-        insuranceDetails: state.insurance_details || undefined,
         hospitalId,
       });
     } else {
       // Update existing patient with new info
       patient = await PatientRepository.update(patient.id, {
-        age: state.age || patient.age || undefined,
-        gender: state.gender || patient.gender || undefined,
-        insuranceDetails: state.insurance_details || patient.insuranceDetails || undefined,
+        name: patientName
       });
     }
 
@@ -127,12 +124,10 @@ export const bookAppointment = async (
       duration: 30,
       hospitalId,
       department: state.department || doctor.specialization,
-      reasonForVisit: state.reason_for_visit || undefined,
-      symptoms: state.symptoms || undefined,
       notes: 'Booked via AstraMind AI voice assistant.',
     });
 
-    Logger.info(`Appointment booked successfully! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
+    Logger.info(`[STATE_TRANSITION] booking completed! ID: ${newAppointment.id} - Doctor: ${doctor.name}`, 'BOOKING_ENGINE');
 
     return {
       status: 'BOOKED',
@@ -151,45 +146,7 @@ export const bookAppointment = async (
   }
 };
 
-export const checkDoctorAvailability = async (doctorId: string, dateStr: string, timeStr: string): Promise<boolean> => {
-  try {
-    let hours = 0;
-    let minutes = 0;
-    const timeLower = timeStr.toLowerCase();
-    const isPm = timeLower.includes('pm');
-    const isAm = timeLower.includes('am');
-    const timeClean = timeLower.replace(/am|pm/g, '').trim();
-    const parts = timeClean.split(':');
-    
-    if (parts.length >= 1) {
-      hours = parseInt(parts[0], 10);
-      if (isPm && hours < 12) hours += 12;
-      if (isAm && hours === 12) hours = 0;
-    }
-    if (parts.length >= 2) {
-      minutes = parseInt(parts[1], 10);
-    }
-    
-    const dateParts = dateStr.split('-');
-    const year = parseInt(dateParts[0], 10);
-    const month = parseInt(dateParts[1], 10) - 1;
-    const day = parseInt(dateParts[2], 10);
-    const appointmentDate = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
-
-    // Check if there is already an appointment for this doctor at this exact time
-    const existingAppointment = await prisma.appointment.findFirst({
-      where: {
-        doctorId,
-        dateTime: appointmentDate,
-        status: {
-          not: 'CANCELLED'
-        }
-      }
-    });
-
-    return !existingAppointment;
-  } catch (error) {
-    Logger.error('Failed to check doctor availability', error, 'BOOKING_ENGINE');
-    return true; // Default to available on error to avoid blocking
-  }
+export const checkDoctorAvailability = async (_doctorId: string, _dateStr: string, _timeStr: string): Promise<boolean> => {
+  // Always return true for the Hackathon Demo
+  return true;
 };

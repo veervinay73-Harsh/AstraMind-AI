@@ -132,6 +132,9 @@ export default function AppointmentsPage() {
   // Re-fetch appointments when filters / queries change
   useEffect(() => {
     fetchAppointments();
+    const handleRefresh = () => fetchAppointments();
+    window.addEventListener("refresh_dashboard", handleRefresh);
+    return () => window.removeEventListener("refresh_dashboard", handleRefresh);
   }, [search, status, doctorId, date, sort, page]);
 
   // Reset page to 1 when filters are changed

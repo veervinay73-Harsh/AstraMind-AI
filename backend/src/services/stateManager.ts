@@ -7,17 +7,11 @@ export interface BookingState {
   state: 'COLLECTING_INFORMATION' | 'CONFIRMATION_REQUIRED' | 'CONFIRMED' | 'OTHER';
   patient_name?: string | null;
   phone?: string | null;
-  age?: number | null;
-  gender?: string | null;
-  is_new_patient?: boolean | null;
   department?: string | null;
   doctor?: string | null;
   doctorId?: string | null;
-  reason_for_visit?: string | null;
-  symptoms?: string | null;
   date?: string | null;
   time?: string | null;
-  insurance_details?: string | null;
   missing_fields: string[];
   invalid_doctor?: string | null;
   doctor_unavailable?: boolean;
@@ -31,21 +25,15 @@ export const getSessionState = (callSid: string): BookingState => {
   if (!stateStore[callSid]) {
     stateStore[callSid] = {
       intent: 'UNKNOWN',
-      state: 'OTHER',
+      state: 'COLLECTING_INFORMATION',
       patient_name: null,
       phone: null,
-      age: null,
-      gender: null,
-      is_new_patient: null,
       department: null,
       doctor: null,
       doctorId: null,
-      reason_for_visit: null,
-      symptoms: null,
       date: null,
       time: null,
-      insurance_details: null,
-      missing_fields: [],
+      missing_fields: ['patient_name', 'phone', 'department', 'date', 'time'],
       invalid_doctor: null,
       doctor_unavailable: false,
       recommended_doctors: null,
@@ -68,71 +56,68 @@ export const processConversationTurn = async (
     const groq = getGroqClient();
     const currentState = getSessionState(callSid);
 
-    // Auto-fill phone from caller number if available and not yet set (only if it starts with '+' to represent a real phone number)
     if (callerPhone && !currentState.phone && callerPhone.startsWith('+')) {
       currentState.phone = callerPhone;
     }
 
-    const systemPrompt = `You are a real-time hospital receptionist conversation state manager.
-Your task is to analyze the conversation turn, classify the intent, and update the booking details state.
+    // DETERMINISTIC LLM BYPASS FOR CONFIRMATION
+    if (currentState.state === 'CONFIRMATION_REQUIRED') {
+      const affirmRegex = /^(yes|yeah|yep|confirm|correct|sure|ok|okay|book it|yes please|proceed|go ahead|please confirm)/i;
+      const cancelRegex = /^(no|cancel|stop|actually no|nevermind|never mind|don't book)/i;
+      const trimmed = userUtterance.trim();
 
-We support the following intents:
-- BOOK_APPOINTMENT: Customer wants to book a new appointment.
-- CANCEL_APPOINTMENT: Customer wants to cancel an existing appointment.
-- RESCHEDULE_APPOINTMENT: Customer wants to reschedule or change an existing appointment.
-- ASK_HOSPITAL_INFORMATION: Customer is asking general questions about the hospital (timings, insurance, parking, etc.).
-- TALK_TO_HUMAN: Customer wants to speak with a human or receptionist.
+      if (affirmRegex.test(trimmed)) {
+        currentState.intent = 'BOOK_APPOINTMENT';
+        currentState.state = 'CONFIRMED';
+        Logger.info(`[STATE_TRANSITION] LLM Bypassed - Explicit Confirmation Detected`, 'STATE_MANAGER');
+        return currentState;
+      } else if (cancelRegex.test(trimmed)) {
+        currentState.intent = 'CANCEL_APPOINTMENT';
+        currentState.state = 'OTHER';
+        Logger.info(`[STATE_TRANSITION] LLM Bypassed - Explicit Cancellation Detected`, 'STATE_MANAGER');
+        return currentState;
+      }
+    }
+
+    const systemPrompt = `You are a natural language understanding engine for a hospital receptionist.
+Your ONLY task is to extract information from the user's utterance and output it in a strict JSON format.
+
+Intents:
+- CONFIRMATION_YES: The user is confirming their appointment details (e.g. "Yes", "Confirm", "Looks good", "Yes please", "Book it").
+- CONFIRMATION_NO: The user is declining or cancelling their appointment (e.g. "No", "Cancel it", "Actually no").
+- BOOK_APPOINTMENT: The user wants to book a new appointment or is providing booking details.
+- RESCHEDULE_APPOINTMENT: The user wants to reschedule.
+- ASK_HOSPITAL_INFORMATION: The user is asking general questions.
+- TALK_TO_HUMAN: The user wants to speak with a human.
 - UNKNOWN: None of the above.
 
-We track the following slot fields:
-1. patient_name: Name of the patient (e.g., "John Doe", "Mary").
-2. phone: Phone number of the caller.
-3. age: Age of the patient (number).
-4. gender: Gender of the patient.
-5. is_new_patient: Boolean, whether they are a new or existing patient.
-6. department: The hospital department (e.g., "Cardiology", "General Physician").
-7. doctor: Preferred doctor name, if any (e.g., "Dr. Smith").
-8. reason_for_visit: Short description of why they need an appointment.
-9. symptoms: Any symptoms described, if applicable.
-10. date: 
-        - Natural language terms like "tomorrow", "next Monday" should be resolved to YYYY-MM-DD. Assume current date is ${new Date().toISOString().slice(0, 10)}.
-        - Only output valid values. If the user hasn't provided a slot, output null for that field.
-11. time: Time of the appointment (e.g., "2:00 PM", "10:30 AM").
-12. insurance_details: Insurance provider or policy info, if mentioned.
+Slots to extract:
+1. patientName: The patient's name.
+2. phone: The caller's phone number.
+3. department: The hospital department or specialization.
+4. doctor: The preferred doctor's name.
+5. date: The appointment date (convert to YYYY-MM-DD. Assume today is ${new Date().toISOString().slice(0, 10)}).
+6. time: The appointment time (convert to "HH:MM AM/PM").
 
-Current session details:
+Rules:
+- ONLY output new values provided by the user in this specific utterance.
+- If the user has not explicitly provided a slot in THIS utterance, output null.
+- Do NOT output placeholder strings like "unknown", "not specified", "none". Output null instead.
+
+Current session context (for coreference resolution only):
 ${JSON.stringify(currentState, null, 2)}
 
 User utterance: "${userUtterance}"
 
-Rules for updates:
-- Correctly classify the "intent" based on the user's latest request.
-- Retain existing values for slots unless the user explicitly updates or changes them in their new utterance.
-- Extract new values for slots if mentioned in the utterance.
-- Always convert conversational dates into YYYY-MM-DD format.
-- Always convert and normalize natural-language time expressions into standard "HH:MM AM/PM" format.
-- Set the "state" to "COLLECTING_INFORMATION" if any of the following required slots are missing for booking: ["patient_name", "phone", "age", "gender", "is_new_patient", "department", "reason_for_visit", "date", "time"]. (doctor, symptoms, and insurance_details are optional).
-- Set the "state" to "CONFIRMATION_REQUIRED" if all required slots are present, but the user hasn't explicitly confirmed yet.
-- Set the "state" to "CONFIRMED" if all required slots are present and the user explicitly agrees/confirms (e.g., "yes", "confirm", "that sounds good", "perfect").
-- List any missing fields from the required slots in the "missing_fields" array. The order in this array MUST reflect the exact missing fields in this priority order: patient_name, phone, age, gender, is_new_patient, department, reason_for_visit, date, time.
-
-You must respond with a raw JSON object containing the updated state:
+Output ONLY valid JSON:
 {
-  "intent": "BOOK_APPOINTMENT" | "CANCEL_APPOINTMENT" | "RESCHEDULE_APPOINTMENT" | "ASK_HOSPITAL_INFORMATION" | "TALK_TO_HUMAN" | "UNKNOWN",
-  "state": "COLLECTING_INFORMATION" | "CONFIRMATION_REQUIRED" | "CONFIRMED" | "OTHER",
-  "patient_name": string | null,
+  "intent": "CONFIRMATION_YES" | "CONFIRMATION_NO" | "BOOK_APPOINTMENT" | "RESCHEDULE_APPOINTMENT" | "ASK_HOSPITAL_INFORMATION" | "TALK_TO_HUMAN" | "UNKNOWN",
+  "patientName": string | null,
   "phone": string | null,
-  "age": number | null,
-  "gender": string | null,
-  "is_new_patient": boolean | null,
   "department": string | null,
   "doctor": string | null,
-  "reason_for_visit": string | null,
-  "symptoms": string | null,
   "date": string | null,
-  "time": string | null,
-  "insurance_details": string | null,
-  "missing_fields": string[]
+  "time": string | null
 }`;
 
     const response = await groq.chat.completions.create({
@@ -150,42 +135,59 @@ You must respond with a raw JSON object containing the updated state:
       throw new Error('Received empty content from Groq state manager.');
     }
 
-    const parsed = JSON.parse(content) as BookingState;
+    const parsed = JSON.parse(content);
     
-    // Log the extracted slots before updating the appointment state
-    Logger.info(`StateManager extracted raw slots from Groq turn -> Patient Name: "${parsed.patient_name}", Phone: "${parsed.phone}", Doctor: "${parsed.doctor}", Date: "${parsed.date}", Time: "${parsed.time}"`, 'STATE_MANAGER');
-    
-    // Helper to sanitize "null" or "undefined" strings from LLM output
-    const sanitizeSlot = (val: any): string | null => {
+    // Helper to sanitize "null" or "undefined" or placeholder strings from LLM output
+    const sanitizeSlot = (slotName: string, val: any): string | null => {
       if (val === null || val === undefined) return null;
       const s = String(val).trim();
-      if (s === 'null' || s === 'undefined' || s === '') return null;
+      const lower = s.toLowerCase();
+      if (['null', 'undefined', '', 'not specified', 'unknown', 'n/a', 'none', 'unspecified'].includes(lower)) {
+        Logger.info(`[STATE_TRANSITION] Slot rejected (placeholder): ${slotName} = "${s}"`, 'STATE_MANAGER');
+        return null;
+      }
       return s;
     };
 
-    const parsedDoctor = sanitizeSlot(parsed.doctor);
-    Logger.info(`[STATE_MANAGER_TRACE] Session ID: ${callSid} | Doctor extracted by LLM: "${parsedDoctor}"`, 'STATE_MANAGER');
-    const parsedPatientName = sanitizeSlot(parsed.patient_name);
-    const parsedPhone = sanitizeSlot(parsed.phone);
-    const parsedDate = sanitizeSlot(parsed.date);
-    const parsedTime = sanitizeSlot(parsed.time);
-    const parsedAge = parsed.age;
-    const parsedGender = sanitizeSlot(parsed.gender);
-    const parsedIsNewPatient = parsed.is_new_patient;
-    const parsedDepartment = sanitizeSlot(parsed.department);
-    const parsedReasonForVisit = sanitizeSlot(parsed.reason_for_visit);
-    const parsedSymptoms = sanitizeSlot(parsed.symptoms);
-    const parsedInsurance = sanitizeSlot(parsed.insurance_details);
+    const parsedDoctor = sanitizeSlot('doctor', parsed.doctor);
+    const parsedPatientName = sanitizeSlot('patientName', parsed.patientName);
+    const parsedPhone = sanitizeSlot('phone', parsed.phone);
+    const parsedDate = sanitizeSlot('date', parsed.date);
+    const parsedTime = sanitizeSlot('time', parsed.time);
+    const parsedDepartment = sanitizeSlot('department', parsed.department);
 
-    let doctorVal = parsedDoctor;
+    const checkUpdate = (slotName: string, parsedVal: string | null, currentVal: string | null) => {
+      if (parsedVal && parsedVal !== currentVal) {
+        if (currentVal) Logger.info(`[STATE_TRANSITION] Slot updated: ${slotName} changed from "${currentVal}" to "${parsedVal}"`, 'STATE_MANAGER');
+        else Logger.info(`[STATE_TRANSITION] Slot collected: ${slotName} = "${parsedVal}"`, 'STATE_MANAGER');
+      } else if (parsedVal && parsedVal === currentVal) {
+        Logger.info(`[STATE_TRANSITION] Slot ignored (no change or redundant): ${slotName} = "${parsedVal}"`, 'STATE_MANAGER');
+      }
+    };
+
+    checkUpdate('patientName', parsedPatientName, currentState.patient_name || null);
+    checkUpdate('phone', parsedPhone, currentState.phone || null);
+    checkUpdate('doctor', parsedDoctor, currentState.doctor || null);
+    checkUpdate('department', parsedDepartment, currentState.department || null);
+    checkUpdate('date', parsedDate, currentState.date || null);
+    checkUpdate('time', parsedTime, currentState.time || null);
+
+    // Apply extracted slots to state (prioritize keeping existing unless LLM explicitly extracted a new valid value)
+    if (parsedPatientName) currentState.patient_name = parsedPatientName;
+    if (parsedPhone) currentState.phone = parsedPhone;
+    if (parsedDate) currentState.date = parsedDate;
+    if (parsedTime) currentState.time = parsedTime;
+    if (parsedDepartment) currentState.department = parsedDepartment;
+
+    let doctorVal = parsedDoctor || currentState.doctor;
     let invalidDoc: string | null = null;
     let recDocs: { name: string; specialization: string }[] | null = null;
 
-    if (doctorVal) {
-      // Normalize to remove "Doctor " or "Dr. " for robust contains matching
-      const searchName = doctorVal.replace(/^(doctor|dr\.?)\s+/i, '').trim();
+    if (parsedDoctor || parsedDepartment) {
+      // Re-resolve doctor logic
+      // Normalize to remove "Doctor " or "Dr. "
+      let searchName = (parsedDoctor || parsedDepartment || "").replace(/^(doctor|dr\.?)\s+/i, '').trim();
 
-      // Find if an active doctor exists matching name or specialization
       const activeDoctorsByName = await prisma.doctor.findMany({
         where: {
           name: { contains: searchName, mode: 'insensitive' },
@@ -215,11 +217,11 @@ You must respond with a raw JSON object containing the updated state:
           name: doc.name,
           specialization: doc.specialization
         }));
-      } else {
-        invalidDoc = doctorVal;
+      } else if (parsedDoctor) {
+        // Only if they specifically asked for a doctor name that was invalid
+        invalidDoc = parsedDoctor;
         doctorVal = null;
         currentState.doctorId = null;
-
         const fallbacks = await prisma.doctor.findMany({
           where: { isActive: true },
           take: 5,
@@ -230,67 +232,88 @@ You must respond with a raw JSON object containing the updated state:
         }));
       }
     } else {
-      invalidDoc = currentState.invalid_doctor || null;
-      recDocs = currentState.recommended_doctors || null;
-      doctorVal = currentState.doctor || null;
+       // Keep existing invalid_doc or rec_docs if neither doctor nor department was updated
+       invalidDoc = currentState.invalid_doctor || null;
+       recDocs = currentState.recommended_doctors || null;
     }
 
-    const finalPhone = parsedPhone || currentState.phone || null;
-    const finalPatientName = parsedPatientName || currentState.patient_name || null;
-    const finalDate = parsedDate || currentState.date || null;
-    const finalTime = parsedTime || currentState.time || null;
-    const finalAge = parsedAge ?? currentState.age ?? null;
-    const finalGender = parsedGender || currentState.gender || null;
-    const finalIsNewPatient = parsedIsNewPatient ?? currentState.is_new_patient ?? null;
-    const finalDepartment = parsedDepartment || currentState.department || null;
-    const finalReasonForVisit = parsedReasonForVisit || currentState.reason_for_visit || null;
-    const finalSymptoms = parsedSymptoms || currentState.symptoms || null;
-    const finalInsurance = parsedInsurance || currentState.insurance_details || null;
+    currentState.doctor = doctorVal;
+    currentState.invalid_doctor = invalidDoc;
+    currentState.recommended_doctors = recDocs;
 
-    const order = ['patient_name', 'phone', 'age', 'gender', 'is_new_patient', 'department', 'reason_for_visit', 'date', 'time'];
+    // Intent resolution
+    let finalIntent = currentState.intent;
+    if (parsed.intent === 'CONFIRMATION_YES') {
+      finalIntent = 'BOOK_APPOINTMENT';
+    } else if (parsed.intent === 'CONFIRMATION_NO') {
+      finalIntent = 'CANCEL_APPOINTMENT';
+    } else if (parsed.intent && parsed.intent !== 'UNKNOWN') {
+      finalIntent = parsed.intent;
+    }
+    currentState.intent = finalIntent as any;
+
+    // Hardcode fallback affirmation check
+    const affirmRegex = /^(yes|yeah|yep|confirm|correct|sure|ok|okay|book it|yes please)/i;
+    const cancelRegex = /^(no|cancel|stop|actually no|nevermind|never mind|don't book)/i;
+    
+    if (currentState.state === 'CONFIRMATION_REQUIRED') {
+      if (affirmRegex.test(userUtterance.trim())) {
+        parsed.intent = 'CONFIRMATION_YES';
+        currentState.intent = 'BOOK_APPOINTMENT';
+      } else if (cancelRegex.test(userUtterance.trim())) {
+        parsed.intent = 'CONFIRMATION_NO';
+        currentState.intent = 'CANCEL_APPOINTMENT';
+      }
+    }
+
+    // Determine Missing Slots Deterministically
+    const order = ['patient_name', 'phone', 'department', 'date', 'time'];
     const missingFields = order.filter(f => {
-      if (f === 'patient_name') return !finalPatientName;
-      if (f === 'phone') return !finalPhone;
-      if (f === 'age') return finalAge === null;
-      if (f === 'gender') return !finalGender;
-      if (f === 'is_new_patient') return finalIsNewPatient === null;
-      if (f === 'department') return !finalDepartment;
-      if (f === 'reason_for_visit') return !finalReasonForVisit;
-      if (f === 'date') return !finalDate;
-      if (f === 'time') return !finalTime;
+      if (f === 'patient_name') return !currentState.patient_name;
+      if (f === 'phone') return !currentState.phone;
+      if (f === 'department') return !currentState.department && !currentState.doctor;
+      if (f === 'date') return !currentState.date;
+      if (f === 'time') return !currentState.time;
       return false;
     });
+    currentState.missing_fields = missingFields;
 
-    let finalState = parsed.state || 'OTHER';
+    // Determine Workflow State Deterministically
+    let finalState = currentState.state;
     if (missingFields.length > 0) {
       finalState = 'COLLECTING_INFORMATION';
+    } else {
+      if (parsed.intent === 'CONFIRMATION_YES') {
+        finalState = 'CONFIRMED';
+      } else if (parsed.intent === 'CONFIRMATION_NO') {
+        finalState = 'OTHER'; // Will trigger CANCEL_APPOINTMENT in orchestrator
+      } else {
+        finalState = 'CONFIRMATION_REQUIRED';
+      }
+    }
+    
+    if (finalState === 'CONFIRMATION_REQUIRED' && currentState.state !== 'CONFIRMATION_REQUIRED') {
+      Logger.info(`[STATE_TRANSITION] confirmation started`, 'STATE_MANAGER');
     }
 
-    // Update the in-memory store
-    Object.assign(currentState, {
-      intent: parsed.intent || 'UNKNOWN',
-      state: finalState,
-      patient_name: finalPatientName,
-      doctor: doctorVal,
-      date: finalDate,
-      time: finalTime,
-      phone: finalPhone,
-      age: finalAge,
-      gender: finalGender,
-      is_new_patient: finalIsNewPatient,
-      department: finalDepartment,
-      reason_for_visit: finalReasonForVisit,
-      symptoms: finalSymptoms,
-      insurance_details: finalInsurance,
-      missing_fields: missingFields,
-      invalid_doctor: invalidDoc,
-      // If we are setting doctor/time from the user's explicit new statement, we reset unavailable flag,
-      // assuming it will be checked again by the orchestrator.
-      doctor_unavailable: parsedDate !== null || parsedTime !== null || parsedDoctor !== null ? false : currentState.doctor_unavailable,
-      recommended_doctors: recDocs,
-    });
+    currentState.state = finalState as any;
 
-    Logger.info(`Updated session state: ${JSON.stringify(currentState)}`, 'STATE_MANAGER');
+    Logger.info(`
+Current BookingState:
+{
+  "patientName": ${JSON.stringify(currentState.patient_name || null)},
+  "phone": ${JSON.stringify(currentState.phone || null)},
+  "doctor": ${JSON.stringify(currentState.doctor || null)},
+  "specialization": ${JSON.stringify(currentState.department || null)},
+  "date": ${JSON.stringify(currentState.date || null)},
+  "time": ${JSON.stringify(currentState.time || null)},
+  "confirmationState": ${JSON.stringify(currentState.state)}
+}
+Current Missing Slots: ${JSON.stringify(currentState.missing_fields)}
+Current Workflow State: ${currentState.state}
+Next Action: ${currentState.state === 'CONFIRMED' ? 'BOOK_APPOINTMENT' : currentState.state === 'CONFIRMATION_REQUIRED' ? 'ASK_CONFIRMATION' : 'ASK_MISSING_SLOTS'}
+`, 'STATE_MANAGER');
+
     return currentState;
   } catch (error) {
     Logger.error('Failed to process conversation state turn via Groq', error, 'STATE_MANAGER');

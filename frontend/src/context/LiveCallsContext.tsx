@@ -82,7 +82,16 @@ export function LiveCallsProvider({ children }: { children: React.ReactNode }) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const { event: eventName, callSid } = data;
+        const eventName = data.event || data.type;
+        const callSid = data.callSid;
+
+        if (eventName === "REFRESH_DASHBOARD") {
+          console.log("Received REFRESH_DASHBOARD event from backend. Triggering global refresh.");
+          window.dispatchEvent(new Event("refresh_dashboard"));
+          return;
+        }
+
+        if (!callSid) return;
 
         setCalls((prevCalls) => {
           const currentCall = prevCalls[callSid] || {

@@ -31,16 +31,22 @@ model Hospital {
 }
 
 model Doctor {
-  id             String        @id @default(uuid())
-  name           String
-  specialization String
-  email          String?
-  phone          String?
-  hospitalId     String
-  hospital       Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
-  isActive       Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  name               String
+  specialization     String
+  email              String?
+  phone              String?
+  hospitalId         String
+  hospital           Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  isActive           Boolean       @default(true)
+  consultationFee    Float?
+  experienceYears    Int?
+  qualification      String?
+  profileImage       String?
+  availableDays      String[]
+  availableTimeSlots String[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
   
   appointments   Appointment[]
 

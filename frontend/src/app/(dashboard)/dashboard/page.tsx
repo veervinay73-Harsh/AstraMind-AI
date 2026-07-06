@@ -185,6 +185,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboard();
+    const handleRefresh = () => fetchDashboard();
+    window.addEventListener("refresh_dashboard", handleRefresh);
+    return () => window.removeEventListener("refresh_dashboard", handleRefresh);
   }, [fetchDashboard]);
 
   const kpiCards: KPICardProps[] = stats

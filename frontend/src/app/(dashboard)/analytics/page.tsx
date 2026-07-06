@@ -442,6 +442,9 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchAnalytics();
+    const handleRefresh = () => fetchAnalytics();
+    window.addEventListener("refresh_dashboard", handleRefresh);
+    return () => window.removeEventListener("refresh_dashboard", handleRefresh);
   }, [fetchAnalytics]);
 
   // ── KPI Card definitions ──────────────────────────────────────────────────

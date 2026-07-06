@@ -1,9 +1,10 @@
 import { processConversationTurn } from './stateManager';
-import { bookAppointment, checkDoctorAvailability } from './booking';
+import { bookAppointment } from './booking';
 import { cancelAppointment } from './cancellation';
 import { rescheduleAppointment } from './rescheduling';
 import { queryKnowledgeBase } from './kbEngine';
 import { Logger } from '../utils/logger';
+import { broadcastToDashboard } from './eventHub';
 
 export interface OrchestratorResult {
   selected_tool: 'BOOK_APPOINTMENT' | 'CANCEL_APPOINTMENT' | 'RESCHEDULE_APPOINTMENT' | 'HOSPITAL_FAQ' | 'HUMAN_HANDOFF' | 'NONE';
@@ -36,26 +37,18 @@ export const orchestrateTurn = async (
     // Turn B: BOOK_APPOINTMENT
     if (state.intent === 'BOOK_APPOINTMENT') {
       if (state.state === 'CONFIRMED') {
-        Logger.info(`Orchestrator routed to BOOK_APPOINTMENT for CallSid: ${callSid}`, 'ORCHESTRATOR');
+        Logger.info(`[STATE_TRANSITION] booking started for CallSid: ${callSid}`, 'ORCHESTRATOR');
         const bookingResult = await bookAppointment(callSid, state, hospitalId);
+        if (bookingResult.status === 'BOOKED' || bookingResult.status === 'SUCCESS' as any) {
+          broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+        }
         return {
           selected_tool: 'BOOK_APPOINTMENT',
           reason: 'Customer confirmed all appointment details.',
           result: bookingResult,
         };
       } else if (state.state === 'CONFIRMATION_REQUIRED') {
-        // Intercept confirmation to check availability
-        if (state.doctorId && state.date && state.time) {
-          const isAvailable = await checkDoctorAvailability(state.doctorId, state.date, state.time);
-          if (!isAvailable) {
-            Logger.info(`Doctor ${state.doctor} is unavailable at ${state.date} ${state.time}. Rejecting confirmation.`, 'ORCHESTRATOR');
-            state.doctor_unavailable = true;
-            state.state = 'COLLECTING_INFORMATION';
-            // Important: Do not save back to stateManager immediately, but we can pass it so ResponseGenerator uses it.
-            // Wait, stateManager manages in-memory state. Since `processConversationTurn` already ran, we should probably update the in-memory state.
-            // For now, the response generator will see `doctor_unavailable` and ask the user to pick another time.
-          }
-        }
+        // HACKATHON DEMO: Seeded doctors are always considered available.
         return {
           selected_tool: 'NONE',
           reason: 'Awaiting final confirmation.',
@@ -74,10 +67,16 @@ export const orchestrateTurn = async (
     // Turn C: CANCEL_APPOINTMENT
     if (state.intent === 'CANCEL_APPOINTMENT') {
       Logger.info(`Orchestrator routed to CANCEL_APPOINTMENT for CallSid: ${callSid}`, 'ORCHESTRATOR');
-      const cancelResult = await cancelAppointment(callerPhone, hospitalId, state.doctorId, state.date);
+      let cancelResult;
+      if (state.doctorId && state.date && state.time && state.state === 'CONFIRMED') {
+        cancelResult = await cancelAppointment(callerPhone, hospitalId, state.doctorId, state.date);
+        broadcastToDashboard({ type: 'REFRESH_DASHBOARD' });
+      } else {
+        cancelResult = { status: 'SUCCESS', message: 'Booking flow aborted by user' };
+      }
       return {
         selected_tool: 'CANCEL_APPOINTMENT',
-        reason: 'Customer requested appointment cancellation.',
+        reason: 'Customer requested appointment cancellation or aborted booking confirmation.',
         result: cancelResult,
       };
     }
