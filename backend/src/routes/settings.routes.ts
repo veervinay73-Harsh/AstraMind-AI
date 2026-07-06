@@ -68,7 +68,7 @@ router.get('/system', async (_req: Request, res: Response) => {
       elevenlabs: {
         apiKeyConfigured: isConfigured(env.ELEVENLABS_API_KEY),
         apiKeyMasked: maskKey(env.ELEVENLABS_API_KEY),
-        voiceId: env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM',
+        voiceId: env.ELEVENLABS_VOICE_ID || 'hpp4J3VqNfWAUOO0d1Us',
         model: 'eleven_turbo_v2',
         streaming: true,
       },

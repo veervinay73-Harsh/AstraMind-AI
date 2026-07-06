@@ -82,7 +82,7 @@ router.get('/status', (_req: Request, res: Response): void => {
     elevenlabs: {
       configured: isElevenLabsConfigured(),
       apiKeyMasked: maskKey(process.env.ELEVENLABS_API_KEY),
-      voiceId: process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM',
+      voiceId: process.env.ELEVENLABS_VOICE_ID || 'hpp4J3VqNfWAUOO0d1Us',
       model: 'eleven_turbo_v2',
       streaming: true,
     },
